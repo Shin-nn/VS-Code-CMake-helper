@@ -7,10 +7,10 @@ CMake in VS Code the way CLion does it. Standalone: it doesn't need (or want) Mi
 - **Profiles** (the Profiles view, the `$(layers)` item in the status bar): each one is a build directory with its own build type, generator, toolchain, cache variables and environment. They come from the `cmakeHelper.profiles` setting and from the configure presets in `CMakePresets.json` / `CMakeUserPresets.json`. With neither, there's CLion's default: **Debug** in `cmake-build-debug`. Switching profiles reads that directory's last configure if there is one, and configures otherwise.
 - **Targets** (the Targets view): executables, libraries and custom targets (`add_custom_target`; `showUtilityTargets` turns them off; CTest's dashboard targets are never listed), each with its sources in CMake's source groups. Inline buttons ▶ Run, 🐞 Debug, 🔨 Build. The menu has *Set as Active*, *Edit Run Configuration…*, *Rebuild*, *Go to Definition in CMakeLists* and *Copy Path of the Built File*.
 - **One active target** in the status bar: `$(target) app`, then 🔨 ▶ 🐞. Keys as in CLion: **Ctrl+F9** build, **Shift+F10** run, **Shift+F9** debug, **Alt+Shift+F10** choose the target.
-- **Run configurations per target**, edited as CLion's *Run/Debug Configurations* (*Edit Run Configuration…* on a target, or *Edit Configurations…* in the target picker): every target on the left, by kind; on the right its executable (the target's own, another target's, or a file: what a custom target or a library runs after it's built), program arguments, working directory (default: the executable's directory), environment (`A=1;B=2`) and *Before launch: Build*. A custom target with no executable is only built by ▶, as in CLion. They're kept in the workspace settings under `cmakeHelper.runConfigurations`.
+- **Run configurations per target**, edited as CLion's *Run/Debug Configurations* (*Edit Run Configuration…* on a target, or *Edit Configurations…* in the target picker): every target on the left, by kind; on the right its executable (the target's own, another target's, or a file: what a custom target or a library runs after it's built), program arguments, working directory (default: the executable's directory), environment (`A=1;B=2`) and *Before launch: Build*. A custom target with no executable is only built by ▶, as in CLion; 🐞 debugs the program its command runs (`COMMAND app --flag`: `app` with `--flag`, in the command's directory, with `cmake -E env`'s variables), after building what the target depends on (not the target itself, which would run the command). The command comes from the build system, so this needs a Ninja or Makefile generator. They're kept in the workspace settings under `cmakeHelper.runConfigurations`.
 - **Debugging** through C/C++ (`cppdbg`, or `cppvsdbg` with MSVC), CodeLLDB or LLDB DAP: the first one installed, or the one set in `cmakeHelper.debugger`. Extra launch properties go in `cmakeHelper.debugConfiguration`.
 - **CTest in the Test Explorer**: tests are grouped by the target whose executable they run, and by suite for names like `Suite.Test`. Each one sits at its `TEST(…)` / `TEST_CASE("…")` / `BOOST_AUTO_TEST_CASE(…)` in the sources (with ▶ in the gutter), or else at its `add_test`. Running builds the tests' targets first, then calls `ctest` and reads the results from JUnit. Debugging starts the test's command under the debugger. Tests that `gtest_discover_tests` finds only after a build show up once the build is done.
-- **Code lenses**: ▶ Run / 🐞 Debug above `main()` in an executable's sources, and Run / Debug / Build above each `add_executable` / `add_library` in CMake files.
+- **Code lenses**: ▶ Run / 🐞 Debug above `main()` in an executable's sources, and Run / Debug / Build above each `add_executable` / `add_custom_target`, and Build above each `add_library`, in CMake files.
 - **Load CMake Project** on a `CMakeLists.txt` (the explorer's and the editor's context menu, as in CLion): that folder becomes the project (`cmakeHelper.sourceDirectory`) and it's configured; on the project's own `CMakeLists.txt` the menu has *Reload CMake Project*.
 - **Reload**: when one of the project's CMake files changes, a notification and a `Reload CMake` item in the status bar appear (`cmakeHelper.autoReload`: `ask`, `always`, `never`). *Reset Cache and Reload Project* removes `CMakeCache.txt` and `CMakeFiles/` first. A generator mismatch offers the reset by itself.
 - `compile_commands.json` is exported (`exportCompileCommands`), and can be copied where clangd looks for it (`copyCompileCommands`, e.g. `${sourceDir}/compile_commands.json`).
@@ -69,6 +69,23 @@ Updates** (kept in VS Code's secret storage). **CMake: Check for CMake Helper
 Updates** looks now; `cmakeHelper.updates.check` turns it off.
 
 A release is made by the CI on a `v*` tag matching the version in `package.json`.
+
+## Development
+
+Everything runs in the image of the `Dockerfile`: Node for the extension, and
+CMake, Ninja, g++ and GDB for what it drives.
+
+- **Dev container:** open this folder in VS Code and *Reopen in Container*
+  (Dev Containers extension). `npm ci` runs on creation; F5 **Run Extension
+  (example)** opens `example/`, a small project (a library, an executable, a
+  CTest test) to try it on.
+- **Without VS Code:** `./scripts/docker.sh <command>` runs a command in the
+  image, in this folder and as you, e.g. `./scripts/docker.sh npm run package --
+  --skip-license`; without a command it's a shell.
+
+The title bar patch (`cmakeHelper.toolbar`: `titleBar`) can't be tried in the
+container: there the extension runs remotely and VS Code's installation is
+the host's.
 
 ## Building
 

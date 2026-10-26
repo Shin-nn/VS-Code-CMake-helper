@@ -98,13 +98,14 @@ export class StatusBar implements vscode.Disposable {
     this.build.tooltip = busy ? "Busy…" : `Build ${t.name} (Ctrl+F9)`;
     this.build.text = p.state === "building" ? "$(loading~spin)" : "$(tools)";
     this.build.show();
-    // ▶ for what has a program to run, and for a custom target (it's built); 🐞 only with a program.
+    // ▶ for what has a program to run, and for a custom target (it's built); 🐞 for those too.
     const program = !!programOf(p, t);
     this.run.tooltip = program ? `Run ${t.name} (Shift+F10)` : `Build ${t.name}: it runs no program (Shift+F10)`;
-    this.debug.tooltip = `Debug ${t.name} (Shift+F9)`;
+    // A custom target's 🐞 debugs the program its command runs.
+    this.debug.tooltip = program || t.type !== "UTILITY" ? `Debug ${t.name} (Shift+F9)` : `Debug the program ${t.name}'s command runs (Shift+F9)`;
     if (program || t.type === "UTILITY") this.run.show();
     else this.run.hide();
-    if (program) this.debug.show();
+    if (program || t.type === "UTILITY") this.debug.show();
     else this.debug.hide();
   }
 

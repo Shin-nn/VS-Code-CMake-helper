@@ -49,7 +49,8 @@ export class LensProvider implements vscode.CodeLensProvider {
       const d = t.definition;
       if (!d || !samePath(d.file, doc.fileName) || d.line > doc.lineCount) continue;
       const range = doc.lineAt(d.line - 1).range;
-      if (t.type === "EXECUTABLE") {
+      // A custom target's ▶ builds it (runs its command), 🐞 debugs the program its command runs.
+      if (t.type === "EXECUTABLE" || t.type === "UTILITY") {
         lenses.push(
           new vscode.CodeLens(range, { title: "$(play) Run", command: "cmakeHelper.run", arguments: [t.name] }),
           new vscode.CodeLens(range, { title: "$(debug-alt) Debug", command: "cmakeHelper.debug", arguments: [t.name] }),

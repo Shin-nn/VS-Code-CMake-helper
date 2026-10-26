@@ -377,7 +377,7 @@
         },
         {
           "command": "cmakeHelper.debug",
-          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.executable|\\.run$/",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|utility)|\\.run$/",
           "group": "inline@2"
         },
         {
@@ -397,7 +397,7 @@
         },
         {
           "command": "cmakeHelper.debug",
-          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.executable|\\.run$/",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|utility)|\\.run$/",
           "group": "2_run@2"
         },
         {

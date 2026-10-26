@@ -4,11 +4,13 @@
  * working directory, environment, build before run), kept in the setting
  * `cmakeHelper.runConfigurations` by target name. An executable runs itself
  * unless another is set; a custom target or a library runs the executable set
- * for it, and without one ▶ only builds it.
+ * for it, and without one ▶ only builds it, and 🐞 debugs the program the
+ * custom target's command runs (customTarget.ts).
  */
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { type Target, executableOf } from "./fileApi";
+import { type CustomCommand, customCommands } from "./customTarget";
 import type { CMakeProject } from "./project";
 import { errorText, exists, expand, isWindows, onPath, settings, splitArgs } from "./util";
 
@@ -105,10 +107,52 @@ export async function runTarget(project: CMakeProject, target: Target): Promise<
 
 /** 🐞 Debug: builds it (if set to), then starts a debug session on its program. */
 export async function debugTarget(project: CMakeProject, target: Target): Promise<void> {
+  if (!programOf(project, target) && target.type === "UTILITY") return debugCustomTarget(project, target);
   if (!programOf(project, target)) return noProgram(target, "debug");
   if (!(await buildFirst(project, target))) return;
   const l = launchOf(project, target);
   if (l) await debugProgram(project, l);
+}
+
+/**
+ * 🐞 on a custom target without an executable set: the program its command runs (the project's
+ * own executable, if one; else a choice), as the command runs it. What it depends on is built
+ * first, not the target itself: that would run the command.
+ */
+async function debugCustomTarget(project: CMakeProject, target: Target): Promise<void> {
+  const commands = await customCommands(project, target);
+  if (!commands) {
+    void vscode.window.showWarningMessage(`Debugging a custom target needs a Ninja or Makefile generator (this is ${project.model?.generator}): set an executable for ${target.name} in its run configuration.`);
+    return;
+  }
+  const own = commands.filter((c) => c.ownExecutable);
+  let c: CustomCommand | undefined = own.length === 1 ? own[0] : commands.length === 1 ? commands[0] : undefined;
+  if (!c && commands.length) {
+    const pick = await vscode.window.showQuickPick(
+      (own.length ? own : commands).map((x) => ({ label: path.basename(x.program), description: x.args.join(" "), detail: x.program, command: x })),
+      { title: `Debug ${target.name}: which of its commands?` },
+    );
+    if (!pick) return;
+    c = pick.command;
+  }
+  if (!c) return noProgram(target, "debug");
+  const conf = runConfiguration(target.name);
+  if (conf.buildBeforeRun ?? settings().get<boolean>("buildBeforeRun", true)) {
+    const deps = target.dependencies.map((id) => project.targets.find((t) => t.id === id)?.name).filter((n): n is string => !!n);
+    if (deps.length && !(await project.build(deps))) {
+      const action = await vscode.window.showErrorMessage(`Building what ${target.name} depends on failed.`, "Debug Anyway");
+      if (action !== "Debug Anyway") return;
+    }
+  }
+  if (!exists(c.program)) {
+    void vscode.window.showErrorMessage(`${c.program} isn't there. Build what ${target.name} depends on first.`);
+    return;
+  }
+  const vars = project.vars(target);
+  const env: Record<string, string> = { ...project.activeProfile.env, ...c.env };
+  for (const [k, v] of Object.entries(conf.environment ?? {})) env[k] = expand(String(v), vars);
+  const cwd = conf.workingDirectory ? path.resolve(project.sourceDir, expand(conf.workingDirectory, vars)) : c.cwd;
+  await debugProgram(project, { name: target.name, program: c.program, args: [...c.args, ...splitArgs(expand(conf.args ?? "", vars))], cwd, env });
 }
 
 /** Starts a debugger on a program (also a test's command). */
