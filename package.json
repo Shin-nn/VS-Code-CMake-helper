@@ -1,0 +1,1022 @@
+{
+  "name": "vs-code-cmake-helper",
+  "displayName": "VS Code CMake Helper",
+  "description": "CMake the way CLion does it: profiles and presets, targets with their sources, one active target to build, run and debug, run configurations per target, CTest in the Test Explorer.",
+  "version": "0.1.0",
+  "publisher": "cernik",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Testing",
+    "Debuggers",
+    "Other"
+  ],
+  "keywords": [
+    "cmake",
+    "ctest",
+    "c++",
+    "clion",
+    "targets"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:CMakeLists.txt",
+    "workspaceContains:CMakePresets.json",
+    "workspaceContains:*/CMakeLists.txt"
+  ],
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "package": "npm run compile && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "~1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.6.0"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cmakeHelper",
+          "title": "CMake",
+          "icon": "media/cmake.svg"
+        }
+      ]
+    },
+    "views": {
+      "cmakeHelper": [
+        {
+          "id": "cmakeHelper.targets",
+          "name": "Targets",
+          "icon": "media/cmake.svg"
+        },
+        {
+          "id": "cmakeHelper.profiles",
+          "name": "Profiles",
+          "icon": "media/cmake.svg",
+          "when": "cmakeHelper.hasProject"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "cmakeHelper.targets",
+        "contents": "There's no CMakeLists.txt in this workspace.\nIf the project is in a subfolder, set its path.\n[Set Source Directory](command:workbench.action.openSettings?%5B%22cmakeHelper.sourceDirectory%22%5D)",
+        "when": "!cmakeHelper.hasProject"
+      },
+      {
+        "view": "cmakeHelper.targets",
+        "contents": "The CMake project isn't loaded yet.\n[Load CMake Project](command:cmakeHelper.reload)\n[Show CMake Output](command:cmakeHelper.showOutput)",
+        "when": "cmakeHelper.hasProject && !cmakeHelper.loaded && !cmakeHelper.busy"
+      }
+    ],
+    "commands": [
+      {
+        "command": "cmakeHelper.reload",
+        "title": "Reload CMake Project",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cmakeHelper.loadProject",
+        "title": "Load CMake Project",
+        "category": "CMake",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "cmakeHelper.resetCacheAndReload",
+        "title": "Reset Cache and Reload Project",
+        "category": "CMake",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "cmakeHelper.cancelReload",
+        "title": "Stop Loading the CMake Project",
+        "category": "CMake",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "cmakeHelper.showOutput",
+        "title": "Show CMake Output",
+        "category": "CMake",
+        "icon": "$(output)"
+      },
+      {
+        "command": "cmakeHelper.checkForUpdates",
+        "title": "Check for CMake Helper Updates",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.setUpdateToken",
+        "title": "Set Gitea Token for CMake Helper Updates",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.patchTitleBar",
+        "title": "Put the CMake Toolbar in the Title Bar (Patch VS Code)",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.unpatchTitleBar",
+        "title": "Remove the CMake Toolbar from the Title Bar (Unpatch VS Code)",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.selectProfile",
+        "title": "Select Profile…",
+        "category": "CMake",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "cmakeHelper.newProfile",
+        "title": "New Profile…",
+        "category": "CMake",
+        "icon": "$(add)"
+      },
+      {
+        "command": "cmakeHelper.editProfiles",
+        "title": "Edit Profiles…",
+        "category": "CMake",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "cmakeHelper.editProfilesJson",
+        "title": "Edit Profiles (settings.json)",
+        "category": "CMake",
+        "icon": "$(json)"
+      },
+      {
+        "command": "cmakeHelper.removeProfile",
+        "title": "Remove Profile",
+        "category": "CMake",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "cmakeHelper.revealBuildDirectory",
+        "title": "Open Build Directory",
+        "category": "CMake",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "cmakeHelper.selectTarget",
+        "title": "Select Target…",
+        "category": "CMake",
+        "icon": "$(target)"
+      },
+      {
+        "command": "cmakeHelper.build",
+        "title": "Build",
+        "category": "CMake",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "cmakeHelper.rebuild",
+        "title": "Rebuild",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cmakeHelper.buildAll",
+        "title": "Build All",
+        "category": "CMake",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "cmakeHelper.rebuildAll",
+        "title": "Rebuild All",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.clean",
+        "title": "Clean",
+        "category": "CMake",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "cmakeHelper.run",
+        "title": "Run",
+        "category": "CMake",
+        "icon": "$(play)"
+      },
+      {
+        "command": "cmakeHelper.debug",
+        "title": "Debug",
+        "category": "CMake",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "cmakeHelper.editRunConfiguration",
+        "title": "Edit Run Configuration…",
+        "category": "CMake",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "cmakeHelper.editGdbConfigurations",
+        "title": "Edit GDB Server Configurations…",
+        "category": "CMake",
+        "icon": "$(debug-configure)"
+      },
+      {
+        "command": "cmakeHelper.newGdbConfiguration",
+        "title": "New GDB Server Configuration (Embedded / Remote)…",
+        "category": "CMake",
+        "icon": "$(add)"
+      },
+      {
+        "command": "cmakeHelper.revealDefinition",
+        "title": "Go to Definition in CMakeLists",
+        "category": "CMake",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "cmakeHelper.copyArtifactPath",
+        "title": "Copy Path of the Built File",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.activeProgram",
+        "title": "Active Target's Program (for launch.json)",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.activeTarget",
+        "title": "Active Target's Name",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.buildDirectory",
+        "title": "Active Build Directory",
+        "category": "CMake"
+      },
+      {
+        "command": "cmakeHelper.buildType",
+        "title": "Active Build Type",
+        "category": "CMake"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "cmakeHelper.loadProject",
+          "when": "resourceFilename == CMakeLists.txt && !(resourcePath in cmakeHelper.loadedCMakeLists)",
+          "group": "cmake@1"
+        },
+        {
+          "command": "cmakeHelper.reload",
+          "when": "resourceFilename == CMakeLists.txt && resourcePath in cmakeHelper.loadedCMakeLists",
+          "group": "cmake@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "cmakeHelper.loadProject",
+          "when": "resourceFilename == CMakeLists.txt && !(resourcePath in cmakeHelper.loadedCMakeLists)",
+          "group": "cmake@1"
+        },
+        {
+          "command": "cmakeHelper.reload",
+          "when": "resourceFilename == CMakeLists.txt && resourcePath in cmakeHelper.loadedCMakeLists",
+          "group": "cmake@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "cmakeHelper.loadProject",
+          "when": "resourceFilename == CMakeLists.txt && !(resourcePath in cmakeHelper.loadedCMakeLists)",
+          "group": "cmake@1"
+        },
+        {
+          "command": "cmakeHelper.reload",
+          "when": "resourceFilename == CMakeLists.txt && resourcePath in cmakeHelper.loadedCMakeLists",
+          "group": "cmake@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "cmakeHelper.reload",
+          "when": "view == cmakeHelper.targets && !cmakeHelper.busy",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cmakeHelper.cancelReload",
+          "when": "view == cmakeHelper.targets && cmakeHelper.busy",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cmakeHelper.selectProfile",
+          "when": "view == cmakeHelper.targets",
+          "group": "navigation@2"
+        },
+        {
+          "command": "cmakeHelper.buildAll",
+          "when": "view == cmakeHelper.targets && cmakeHelper.loaded",
+          "group": "navigation@3"
+        },
+        {
+          "command": "cmakeHelper.rebuildAll",
+          "when": "view == cmakeHelper.targets && cmakeHelper.loaded",
+          "group": "1_build@1"
+        },
+        {
+          "command": "cmakeHelper.clean",
+          "when": "view == cmakeHelper.targets && cmakeHelper.loaded",
+          "group": "1_build@2"
+        },
+        {
+          "command": "cmakeHelper.resetCacheAndReload",
+          "when": "view == cmakeHelper.targets",
+          "group": "2_cmake@1"
+        },
+        {
+          "command": "cmakeHelper.showOutput",
+          "when": "view == cmakeHelper.targets",
+          "group": "2_cmake@2"
+        },
+        {
+          "command": "cmakeHelper.newProfile",
+          "when": "view == cmakeHelper.profiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cmakeHelper.editProfiles",
+          "when": "view == cmakeHelper.profiles",
+          "group": "navigation@2"
+        },
+        {
+          "command": "cmakeHelper.editProfiles",
+          "when": "view == cmakeHelper.targets",
+          "group": "2_cmake@0"
+        },
+        {
+          "command": "cmakeHelper.editProfilesJson",
+          "when": "view == cmakeHelper.profiles",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "cmakeHelper.editGdbConfigurations",
+          "when": "view == cmakeHelper.targets",
+          "group": "2_cmake@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "cmakeHelper.editProfiles",
+          "when": "view == cmakeHelper.profiles",
+          "group": "inline@0"
+        },
+        {
+          "command": "cmakeHelper.run",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|utility)|\\.run$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "cmakeHelper.debug",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|utility)|\\.run$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "cmakeHelper.build",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\./",
+          "group": "inline@3"
+        },
+        {
+          "command": "cmakeHelper.selectTarget",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\./",
+          "group": "1_active@1"
+        },
+        {
+          "command": "cmakeHelper.run",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|utility)|\\.run$/",
+          "group": "2_run@1"
+        },
+        {
+          "command": "cmakeHelper.debug",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|utility)|\\.run$/",
+          "group": "2_run@2"
+        },
+        {
+          "command": "cmakeHelper.editRunConfiguration",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\./",
+          "group": "2_run@3"
+        },
+        {
+          "command": "cmakeHelper.build",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\./",
+          "group": "3_build@1"
+        },
+        {
+          "command": "cmakeHelper.rebuild",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\./",
+          "group": "3_build@2"
+        },
+        {
+          "command": "cmakeHelper.revealDefinition",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\./",
+          "group": "4_nav@1"
+        },
+        {
+          "command": "cmakeHelper.copyArtifactPath",
+          "when": "view == cmakeHelper.targets && viewItem =~ /^target\\.(executable|library)/",
+          "group": "4_nav@2"
+        },
+        {
+          "command": "cmakeHelper.revealBuildDirectory",
+          "when": "view == cmakeHelper.profiles",
+          "group": "inline@1"
+        },
+        {
+          "command": "cmakeHelper.resetCacheAndReload",
+          "when": "view == cmakeHelper.profiles",
+          "group": "1_cmake@1"
+        },
+        {
+          "command": "cmakeHelper.revealBuildDirectory",
+          "when": "view == cmakeHelper.profiles",
+          "group": "1_cmake@2"
+        },
+        {
+          "command": "cmakeHelper.removeProfile",
+          "when": "view == cmakeHelper.profiles && viewItem == profile.settings",
+          "group": "2_edit@1"
+        },
+        {
+          "command": "cmakeHelper.editProfiles",
+          "when": "view == cmakeHelper.profiles",
+          "group": "2_edit@0"
+        }
+      ],
+      "editor/title/run": [
+        {
+          "command": "cmakeHelper.run",
+          "when": "cmakeHelper.loaded && resourceLangId =~ /^(c|cpp|cuda-cpp)$/ && config.cmakeHelper.toolbar != editorTitle",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cmakeHelper.debug",
+          "when": "cmakeHelper.loaded && resourceLangId =~ /^(c|cpp|cuda-cpp)$/ && config.cmakeHelper.toolbar != editorTitle",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "cmakeHelper.loadProject",
+          "when": "resourceFilename == CMakeLists.txt"
+        },
+        {
+          "command": "cmakeHelper.removeProfile",
+          "when": "false"
+        },
+        {
+          "command": "cmakeHelper.revealDefinition",
+          "when": "cmakeHelper.loaded"
+        },
+        {
+          "command": "cmakeHelper.copyArtifactPath",
+          "when": "cmakeHelper.loaded"
+        },
+        {
+          "command": "cmakeHelper.cancelReload",
+          "when": "cmakeHelper.busy"
+        },
+        {
+          "command": "cmakeHelper.activeProgram",
+          "when": "false"
+        },
+        {
+          "command": "cmakeHelper.activeTarget",
+          "when": "false"
+        },
+        {
+          "command": "cmakeHelper.buildDirectory",
+          "when": "false"
+        },
+        {
+          "command": "cmakeHelper.buildType",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "cmakeHelper.reload",
+          "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject && cmakeHelper.needsReload",
+          "group": "navigation@-10"
+        },
+        {
+          "command": "cmakeHelper.selectProfile",
+          "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject",
+          "group": "navigation@-9"
+        },
+        {
+          "command": "cmakeHelper.selectTarget",
+          "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject && cmakeHelper.loaded",
+          "group": "navigation@-8"
+        },
+        {
+          "command": "cmakeHelper.build",
+          "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject && cmakeHelper.loaded",
+          "group": "navigation@-7"
+        },
+        {
+          "command": "cmakeHelper.run",
+          "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject && cmakeHelper.loaded",
+          "group": "navigation@-6"
+        },
+        {
+          "command": "cmakeHelper.debug",
+          "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject && cmakeHelper.loaded",
+          "group": "navigation@-5"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "cmakeHelper.build",
+        "key": "ctrl+f9",
+        "mac": "cmd+f9",
+        "when": "cmakeHelper.hasProject"
+      },
+      {
+        "command": "cmakeHelper.run",
+        "key": "shift+f10",
+        "when": "cmakeHelper.hasProject && !inDebugMode"
+      },
+      {
+        "command": "cmakeHelper.debug",
+        "key": "shift+f9",
+        "when": "cmakeHelper.hasProject && !inDebugMode"
+      },
+      {
+        "command": "cmakeHelper.selectTarget",
+        "key": "alt+shift+f10",
+        "when": "cmakeHelper.hasProject"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "cmakeHelper",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "build",
+              "run"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "cmake-helper-gcc",
+        "owner": "cpp",
+        "source": "build",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.*?):(\\d+):(\\d*):?\\s+(?:fatal\\s+)?(warning|error|note):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    ],
+    "configuration": {
+      "title": "CMake Helper",
+      "properties": {
+        "cmakeHelper.cmakePath": {
+          "type": "string",
+          "default": "cmake",
+          "description": "The cmake program.",
+          "scope": "machine-overridable"
+        },
+        "cmakeHelper.ctestPath": {
+          "type": "string",
+          "default": "",
+          "description": "The ctest program. Empty: next to cmakePath, or ctest on PATH.",
+          "scope": "machine-overridable"
+        },
+        "cmakeHelper.sourceDirectory": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "description": "Where the top CMakeLists.txt is.",
+          "scope": "resource"
+        },
+        "cmakeHelper.profiles": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "CMake profiles, as in CLion: each its own build directory. Configure presets (`CMakePresets.json`) are listed too. With neither, there's one: **Debug** in `cmake-build-debug`. Edited in **CMake: Edit Profiles…**.",
+          "scope": "resource",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "false: kept, but not offered (CLion's \"Enable profile\")."
+              },
+              "buildType": {
+                "type": "string",
+                "default": "Debug",
+                "enum": [
+                  "Debug",
+                  "Release",
+                  "RelWithDebInfo",
+                  "MinSizeRel"
+                ]
+              },
+              "buildDirectory": {
+                "type": "string",
+                "markdownDescription": "Default: `cmake-build-<name>`. `${sourceDir}`, `${workspaceFolder}`, `${profile}`, `${buildType}` and `${env:X}` are expanded."
+              },
+              "generator": {
+                "type": "string",
+                "examples": [
+                  "Ninja",
+                  "Ninja Multi-Config",
+                  "Unix Makefiles"
+                ]
+              },
+              "toolchainFile": {
+                "type": "string"
+              },
+              "cacheVariables": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                }
+              },
+              "environment": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "For configuring, building, running and testing."
+              },
+              "configureArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "buildArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "After `cmake --build <dir>`; put the native tool's after `--`."
+              }
+            }
+          }
+        },
+        "cmakeHelper.usePresets": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer the configure presets of `CMakePresets.json` and `CMakeUserPresets.json` as profiles."
+        },
+        "cmakeHelper.generator": {
+          "type": "string",
+          "default": "",
+          "description": "The generator of profiles that don't name one. Empty: Ninja if it's on PATH, else CMake's default."
+        },
+        "cmakeHelper.configureArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "More arguments for every configure."
+        },
+        "cmakeHelper.environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Environment of every profile."
+        },
+        "cmakeHelper.configureOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Load (configure) the project when the folder opens and its build directory has nothing to read yet."
+        },
+        "cmakeHelper.autoReload": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "default": "ask",
+          "enumDescriptions": [
+            "Offer to reload when a CMake file changes",
+            "Reload when a CMake file changes",
+            "Only when asked"
+          ],
+          "description": "What a change to a CMake file does."
+        },
+        "cmakeHelper.revealOutputOnConfigure": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the CMake output while loading (it's always shown when loading fails)."
+        },
+        "cmakeHelper.exportCompileCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Configure with CMAKE_EXPORT_COMPILE_COMMANDS=ON, for clangd and C/C++."
+        },
+        "cmakeHelper.copyCompileCommands": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "After loading, copy `compile_commands.json` here (e.g. `${sourceDir}/compile_commands.json` for clangd). Empty: don't."
+        },
+        "cmakeHelper.parallelJobs": {
+          "type": "number",
+          "default": 0,
+          "description": "Build jobs. 0: as many as there are CPUs."
+        },
+        "cmakeHelper.revealBuildOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the terminal with the build's output."
+        },
+        "cmakeHelper.showUtilityTargets": {
+          "type": "boolean",
+          "default": true,
+          "description": "List utility targets (add_custom_target) too, as CLion does; CTest's dashboard targets (Experimental, Nightly, Continuous…) never."
+        },
+        "cmakeHelper.buildBeforeRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Build a target before running or debugging it (a run configuration can say otherwise)."
+        },
+        "cmakeHelper.defaultWorkingDirectory": {
+          "type": "string",
+          "default": "${targetDir}",
+          "markdownDescription": "Where a target runs unless its run configuration says. `${targetDir}` is the directory of its executable; also `${buildDir}`, `${sourceDir}`, `${workspaceFolder}`."
+        },
+        "cmakeHelper.runConfigurations": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Run configurations by target name, as CLion's Run/Debug Configurations (Edit Run Configuration… in a target's menu, Edit Configurations… in the target picker).",
+          "scope": "resource",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "executable": {
+                "type": "string",
+                "description": "What runs after the target is built, relative to the build directory: its own executable unless this is set (what a custom target or a library runs)."
+              },
+              "args": {
+                "type": "string",
+                "description": "Program arguments, as on a command line."
+              },
+              "workingDirectory": {
+                "type": "string"
+              },
+              "environment": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "buildBeforeRun": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "cmakeHelper.debugger": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "cppdbg",
+            "cppvsdbg",
+            "lldb",
+            "lldb-dap"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "The first installed of C/C++, CodeLLDB, LLDB DAP",
+            "C/C++ (gdb, or lldb on macOS)",
+            "C/C++ with the Visual Studio debugger",
+            "CodeLLDB",
+            "LLDB DAP"
+          ],
+          "description": "Which debugger extension starts the debugging."
+        },
+        "cmakeHelper.debugConfiguration": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "More launch properties by debugger type, e.g. `{ \"cppdbg\": { \"miDebuggerPath\": \"/usr/bin/gdb\" } }`."
+        },
+        "cmakeHelper.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run / Debug above main() and above the targets in CMake files."
+        },
+        "cmakeHelper.toolbar": {
+          "type": "string",
+          "enum": [
+            "statusBar",
+            "editorTitle",
+            "titleBar"
+          ],
+          "default": "statusBar",
+          "scope": "application",
+          "enumDescriptions": [
+            "The profile, target, Build, Run and Debug in the status bar",
+            "Build, Run, Debug and the profile and target pickers as buttons at the top of the editors (the profile and target names stay in the status bar)",
+            "In VS Code's title bar, as in Jarvis's web IDE: VS Code's workbench.html is patched (with your password if VS Code is root's), and again after each VS Code update"
+          ],
+          "description": "Where CLion's toolbar (profile, target, Build, Run, Debug) goes."
+        },
+        "cmakeHelper.buildBeforeTest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Build the tests' targets before running them."
+        },
+        "cmakeHelper.testParallelJobs": {
+          "type": "number",
+          "default": 0,
+          "description": "ctest -j. 0: as many as there are CPUs."
+        },
+        "cmakeHelper.ctestArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "More arguments for ctest."
+        },
+        "cmakeHelper.gdbConfigurations": {
+          "type": "array",
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "GDB server configurations, as CLion's *Embedded GDB Server* and *Remote GDB Server*: chosen in the target picker, they're what Build, ▶ Run (Download & Run, or run over SSH) and 🐞 Debug act on. Edited in **CMake: Edit GDB Server Configurations…**. `${program}`, `${sourceDir}`, `${buildDir}`, `${targetDir}` and `${env:X}` are expanded.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "embedded",
+                  "remote"
+                ],
+                "enumDescriptions": [
+                  "A GDB server started here (OpenOCD, J-Link, ST-LINK, pyOCD…), the program flashed",
+                  "A gdbserver elsewhere; optionally uploaded and started over SSH"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "description": "The CMake target debugged (and flashed or uploaded). Empty: the active target."
+              },
+              "program": {
+                "type": "string",
+                "description": "Another file instead of the target's executable."
+              },
+              "debugger": {
+                "type": "string",
+                "description": "gdb for the target's architecture (gdb-multiarch, arm-none-eabi-gdb…)."
+              },
+              "remote": {
+                "type": "string",
+                "description": "What 'target remote' gets, e.g. localhost:3333."
+              },
+              "server": {
+                "type": "string",
+                "description": "Embedded: the GDB server program started first."
+              },
+              "serverArgs": {
+                "type": "string"
+              },
+              "serverReady": {
+                "type": "string",
+                "description": "Embedded: a regular expression the server prints once it listens."
+              },
+              "serverEnvironment": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "download": {
+                "type": "string",
+                "enum": [
+                  "always",
+                  "updated",
+                  "never"
+                ],
+                "default": "always"
+              },
+              "resetCommand": {
+                "type": "string",
+                "description": "Embedded: e.g. monitor reset halt; before and after the download."
+              },
+              "runCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Embedded, Download & Run: gdb commands that start the program after the download (default: monitor reset run)."
+              },
+              "sysroot": {
+                "type": "string"
+              },
+              "pathMappings": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Remote: build path → local path."
+              },
+              "ssh": {
+                "type": "string",
+                "description": "Remote: user@host to upload the program to and start gdbserver on."
+              },
+              "remotePath": {
+                "type": "string"
+              },
+              "gdbserver": {
+                "type": "string"
+              },
+              "args": {
+                "type": "string"
+              },
+              "initCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "connectCommands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "buildBeforeDebug": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        },
+        "cmakeHelper.updates.check": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Look for a newer CMake Helper in the Gitea releases, on start and every 10 minutes."
+        },
+        "cmakeHelper.updates.server": {
+          "type": "string",
+          "default": "https://git.cernikovi.cz",
+          "scope": "application",
+          "description": "The Gitea server the releases are on."
+        },
+        "cmakeHelper.updates.repository": {
+          "type": "string",
+          "default": "shin/VS-Code-CMake-helper",
+          "scope": "application",
+          "description": "The repository (owner/name) the releases are in."
+        }
+      }
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@git.cernikovi.cz:1022/shin/VS-Code-CMake-helper.git"
+  }
+}

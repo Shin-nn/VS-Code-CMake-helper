@@ -1,0 +1,14 @@
+{
+  "name": "VS Code CMake Helper",
+  "build": { "dockerfile": "../Dockerfile", "context": ".." },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "remoteUser": "node",
+  "postCreateCommand": "npm ci",
+  "customizations": {
+    "vscode": {
+      // C/C++ for example/, and the debugger the extension's Debug uses.
+      "extensions": ["ms-vscode.cpptools"]
+    }
+  }
+}

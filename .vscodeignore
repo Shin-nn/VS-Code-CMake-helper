@@ -1,0 +1,12 @@
+src/**
+node_modules/**
+tsconfig.json
+**/*.map
+.gitignore
+.vscode/**
+Dockerfile
+.dockerignore
+.devcontainer/**
+.gitea/**
+scripts/**
+example/**
