@@ -10,3 +10,4 @@ Dockerfile
 .gitea/**
 scripts/**
 example/**
+.github/**

@@ -1,6 +1,7 @@
 /**
- * Updates from the Gitea releases: the latest release is looked at on start
- * and every 10 minutes, and a newer one is offered for install (its .vsix).
+ * Updates from the releases on GitHub (or on a Gitea server, by
+ * cmakeHelper.updates.server): the latest release is looked at on start and
+ * every 10 minutes, and a newer one is offered for install (its .vsix).
  * A private repository needs a token, kept in the secret storage.
  */
 import * as fs from "node:fs";
@@ -8,7 +9,6 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { errorText, settings } from "./util";
 
-const TOKEN = "giteaToken";
 const LAST_CHECK = "updates.lastCheck";
 const SKIPPED = "updates.skipped";
 const TOKEN_ASKED = "updates.tokenAsked";
@@ -18,7 +18,8 @@ interface Release {
   tag_name: string;
   name: string;
   html_url: string;
-  assets: { name: string; browser_download_url: string }[];
+  /** `url`: the asset in the API (GitHub: downloadable with a token, as application/octet-stream). */
+  assets: { name: string; url: string; browser_download_url: string }[];
 }
 
 type Latest = { release: Release } | { error: "unauthorized" | string };
@@ -73,28 +74,33 @@ export class Updates implements vscode.Disposable {
 
   async setToken(): Promise<void> {
     const token = await vscode.window.showInputBox({
-      title: "Gitea Access Token",
-      prompt: `A token with read access to ${repository()} on ${server()} (Settings → Applications). Empty removes it.`,
+      title: `${forge().name} Access Token`,
+      prompt: `${forge().tokenHelp} Empty removes it.`,
       password: true,
       ignoreFocusOut: true,
     });
     if (token === undefined) return;
-    if (token) await this.context.secrets.store(TOKEN, token.trim());
-    else await this.context.secrets.delete(TOKEN);
+    if (token) await this.context.secrets.store(forge().secret, token.trim());
+    else await this.context.secrets.delete(forge().secret);
     if (token) await this.check(true);
   }
 
-  private async headers(): Promise<Record<string, string>> {
-    const token = await this.context.secrets.get(TOKEN);
-    return token ? { Authorization: `token ${token}` } : {};
+  private token(): Thenable<string | undefined> {
+    return this.context.secrets.get(forge().secret);
+  }
+
+  private async headers(accept: string): Promise<Record<string, string>> {
+    const f = forge();
+    const token = await this.token();
+    return { Accept: accept, "User-Agent": "vs-code-cmake-helper", ...f.headers, ...(token ? { Authorization: f.authorization(token) } : {}) };
   }
 
   private async latest(): Promise<Latest> {
-    const url = `${server()}/api/v1/repos/${repository()}/releases/latest`;
+    const url = forge().latestRelease;
     try {
-      const res = await fetch(url, { headers: { Accept: "application/json", ...(await this.headers()) }, signal: AbortSignal.timeout(15_000) });
+      const res = await fetch(url, { headers: await this.headers(forge().json), signal: AbortSignal.timeout(15_000) });
       // A private repository is a 404 to whoever can't see it.
-      if (res.status === 401 || res.status === 403 || (res.status === 404 && !(await this.context.secrets.get(TOKEN)))) return { error: "unauthorized" };
+      if (res.status === 401 || res.status === 403 || (res.status === 404 && !(await this.token()))) return { error: "unauthorized" };
       if (res.status === 404) return { error: `no release in ${repository()}` };
       if (!res.ok) return { error: `${url}: HTTP ${res.status}` };
       return { release: (await res.json()) as Release };
@@ -113,7 +119,7 @@ export class Updates implements vscode.Disposable {
     if (!manual && this.context.globalState.get<boolean>(TOKEN_ASKED)) return;
     await this.context.globalState.update(TOKEN_ASKED, true);
     const a = await vscode.window.showWarningMessage(
-      `CMake Helper can't see the releases of ${repository()} to look for updates: it needs a Gitea access token.`,
+      `CMake Helper can't see the releases of ${repository()} to look for updates: it needs a ${forge().name} access token.`,
       "Set Token",
       "Don't Check",
     );
@@ -135,7 +141,10 @@ export class Updates implements vscode.Disposable {
       const file = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Downloading ${asset.name}…` },
         async () => {
-          const res = await fetch(asset.browser_download_url, { headers: await this.headers(), signal: AbortSignal.timeout(120_000) });
+          // GitHub: a private repository's asset only through the API (it redirects to the file, without the token).
+          const api = forge().github && (await this.token());
+          const url = api ? asset.url : asset.browser_download_url;
+          const res = await fetch(url, { headers: await this.headers(api ? "application/octet-stream" : "*/*"), signal: AbortSignal.timeout(120_000) });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const dir = this.context.globalStorageUri.fsPath;
           await fs.promises.mkdir(dir, { recursive: true });
@@ -156,11 +165,37 @@ export class Updates implements vscode.Disposable {
 }
 
 function server(): string {
-  return (settings().get<string>("updates.server") || "https://git.cernikovi.cz").replace(/\/+$/, "");
+  return (settings().get<string>("updates.server") || "https://github.com").replace(/\/+$/, "");
 }
 
 function repository(): string {
-  return settings().get<string>("updates.repository") || "shin/VS-Code-CMake-helper";
+  return settings().get<string>("updates.repository") || "Shin-nn/VS-Code-CMake-helper";
+}
+
+/** What differs between GitHub and Gitea: GitHub is github.com, anything else is taken for a Gitea server. */
+function forge() {
+  const github = /^https?:\/\/(www\.)?github\.com$/i.test(server());
+  return github
+    ? {
+        github,
+        name: "GitHub",
+        secret: "githubToken",
+        latestRelease: `https://api.github.com/repos/${repository()}/releases/latest`,
+        json: "application/vnd.github+json",
+        headers: { "X-GitHub-Api-Version": "2022-11-28" } as Record<string, string>,
+        authorization: (token: string) => `Bearer ${token}`,
+        tokenHelp: `A fine-grained personal access token with "Contents: Read-only" on ${repository()} (GitHub → Settings → Developer settings).`,
+      }
+    : {
+        github,
+        name: "Gitea",
+        secret: "giteaToken",
+        latestRelease: `${server()}/api/v1/repos/${repository()}/releases/latest`,
+        json: "application/json",
+        headers: {} as Record<string, string>,
+        authorization: (token: string) => `token ${token}`,
+        tokenHelp: `A token with read access to ${repository()} on ${server()} (Settings → Applications).`,
+      };
 }
 
 /** "1.10.0" > "1.9.2"; a pre-release ("1.0.0-rc.1") is before its release. */
