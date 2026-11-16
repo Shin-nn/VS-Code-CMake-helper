@@ -61,14 +61,22 @@ Debug) goes:
 
 ## Updates
 
-The extension looks at the latest release of `shin/VS-Code-CMake-helper` on
-git.cernikovi.cz on start and every 10 minutes, and offers a newer one: Install
-downloads its `.vsix` and installs it. The repository is private, so it needs a
-Gitea access token with read access: **CMake: Set Gitea Token for CMake Helper
-Updates** (kept in VS Code's secret storage). **CMake: Check for CMake Helper
-Updates** looks now; `cmakeHelper.updates.check` turns it off.
+The extension looks at the latest release of `Shin-nn/VS-Code-CMake-helper` on
+GitHub on start and every 10 minutes, and offers a newer one: Install downloads
+its `.vsix` and installs it. The repository is private, so it needs a GitHub
+fine-grained personal access token with *Contents: Read-only* on it: **CMake:
+Set Access Token for CMake Helper Updates** (kept in VS Code's secret storage).
+**CMake: Check for CMake Helper Updates** looks now; `cmakeHelper.updates.check`
+turns it off. With `cmakeHelper.updates.server` set to a Gitea server (and
+`cmakeHelper.updates.repository`), the releases there are looked at instead,
+with a Gitea token.
 
-A release is made by the CI on a `v*` tag matching the version in `package.json`.
+A release is made by the CI ([.github/workflows/build.yml](.github/workflows/build.yml);
+[.gitea/workflows/build.yml](.gitea/workflows/build.yml) on Gitea) on a `v*` tag
+matching the version in `package.json`: raise the version, commit, then
+`git tag vX.Y.Z && git push origin vX.Y.Z`. A release made in the GitHub UI
+(with a new tag) gets the `.vsix` attached the same way. Every push to `main`
+and every pull request builds the `.vsix` too: the run's `vsix` artifact.
 
 ## Development
 

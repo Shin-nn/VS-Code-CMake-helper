@@ -114,7 +114,7 @@
       },
       {
         "command": "cmakeHelper.setUpdateToken",
-        "title": "Set Gitea Token for CMake Helper Updates",
+        "title": "Set Access Token for CMake Helper Updates",
         "category": "CMake"
       },
       {
@@ -998,17 +998,17 @@
           "type": "boolean",
           "default": true,
           "scope": "application",
-          "description": "Look for a newer CMake Helper in the Gitea releases, on start and every 10 minutes."
+          "description": "Look for a newer CMake Helper in the releases of cmakeHelper.updates.repository, on start and every 10 minutes."
         },
         "cmakeHelper.updates.server": {
           "type": "string",
-          "default": "https://git.cernikovi.cz",
+          "default": "https://github.com",
           "scope": "application",
-          "description": "The Gitea server the releases are on."
+          "description": "The server the releases are on: https://github.com, or the URL of a Gitea server."
         },
         "cmakeHelper.updates.repository": {
           "type": "string",
-          "default": "shin/VS-Code-CMake-helper",
+          "default": "Shin-nn/VS-Code-CMake-helper",
           "scope": "application",
           "description": "The repository (owner/name) the releases are in."
         }
@@ -1017,6 +1017,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "ssh://git@git.cernikovi.cz:1022/shin/VS-Code-CMake-helper.git"
+    "url": "https://github.com/Shin-nn/VS-Code-CMake-helper.git"
   }
 }
