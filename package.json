@@ -2,7 +2,7 @@
   "name": "vs-code-cmake-helper",
   "displayName": "VS Code CMake Helper",
   "description": "CMake the way CLion does it: profiles and presets, targets with their sources, one active target to build, run and debug, run configurations per target, CTest in the Test Explorer.",
-  "version": "0.1.0",
+  "version": "0.1.7",
   "publisher": "cernik",
   "license": "UNLICENSED",
   "engines": {
@@ -25,7 +25,8 @@
   "activationEvents": [
     "workspaceContains:CMakeLists.txt",
     "workspaceContains:CMakePresets.json",
-    "workspaceContains:*/CMakeLists.txt"
+    "workspaceContains:*/CMakeLists.txt",
+    "workspaceContains:**/CMakeLists.txt"
   ],
   "scripts": {
     "compile": "tsc -p .",
@@ -162,6 +163,12 @@
         "title": "Open Build Directory",
         "category": "CMake",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "cmakeHelper.selectDebugConfiguration",
+        "title": "Select Debug Configuration…",
+        "category": "CMake",
+        "icon": "$(debug-alt)"
       },
       {
         "command": "cmakeHelper.selectTarget",
@@ -513,6 +520,11 @@
           "group": "navigation@-9"
         },
         {
+          "command": "cmakeHelper.selectDebugConfiguration",
+          "when": "config.cmakeHelper.toolbar == editorTitle && config.cmakeHelper.debugConfigurationPlacement != statusBar && cmakeHelper.hasProject && cmakeHelper.loaded",
+          "group": "navigation@-8.5"
+        },
+        {
           "command": "cmakeHelper.selectTarget",
           "when": "config.cmakeHelper.toolbar == editorTitle && cmakeHelper.hasProject && cmakeHelper.loaded",
           "group": "navigation@-8"
@@ -855,6 +867,20 @@
           ],
           "description": "Where CLion's toolbar (profile, target, Build, Run, Debug) goes."
         },
+        "cmakeHelper.debugConfigurationPlacement": {
+          "type": "string",
+          "enum": [
+            "toolbar",
+            "statusBar"
+          ],
+          "default": "toolbar",
+          "scope": "application",
+          "enumDescriptions": [
+            "With the rest of the toolbar (`#cmakeHelper.toolbar#`): in the title bar next to the search with `titleBar`, a button at the top of the editors with `editorTitle`, in the status bar with `statusBar`",
+            "Always at the bottom, in the status bar, wherever the rest of the toolbar is"
+          ],
+          "markdownDescription": "Where the debug configuration picker (*Local* or a GDB server configuration, between the profile and the target) goes: at the top with the rest of the toolbar, or at the bottom in the status bar."
+        },
         "cmakeHelper.buildBeforeTest": {
           "type": "boolean",
           "default": true,
@@ -877,7 +903,7 @@
           "type": "array",
           "default": [],
           "scope": "resource",
-          "markdownDescription": "GDB server configurations, as CLion's *Embedded GDB Server* and *Remote GDB Server*: chosen in the target picker, they're what Build, ▶ Run (Download & Run, or run over SSH) and 🐞 Debug act on. Edited in **CMake: Edit GDB Server Configurations…**. `${program}`, `${sourceDir}`, `${buildDir}`, `${targetDir}` and `${env:X}` are expanded.",
+          "markdownDescription": "GDB server configurations, as CLion's *Embedded GDB Server* and *Remote GDB Server*, for a project without a `CMakePresets.json`; with one they're kept in it (top-level `vendor.cmakeHelper.debugConfig`) and the ones here move there when the editor saves. The one chosen in the toolbar's debug picker (between the profile and the target) is what ▶ Run (Download & Run, or run over SSH) and 🐞 Debug of the chosen target go through. Edited in **CMake: Edit GDB Server Configurations…**. `${program}`, `${sourceDir}`, `${buildDir}`, `${targetDir}` and `${env:X}` are expanded.",
           "items": {
             "type": "object",
             "required": [
@@ -892,11 +918,13 @@
                 "type": "string",
                 "enum": [
                   "embedded",
-                  "remote"
+                  "remote",
+                  "local"
                 ],
                 "enumDescriptions": [
                   "A GDB server started here (OpenOCD, J-Link, ST-LINK, pyOCD…), the program flashed",
-                  "A gdbserver elsewhere; optionally uploaded and started over SSH"
+                  "A gdbserver elsewhere; optionally uploaded and started over SSH",
+                  "A GDB-compatible debugger started here that reaches the target itself (mdb-gdb: 'target remote' is the debug tool, e.g. pickit5); no GDB server"
                 ]
               },
               "target": {

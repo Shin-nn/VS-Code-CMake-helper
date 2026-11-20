@@ -7,6 +7,7 @@ CMake in VS Code the way CLion does it. Standalone: it doesn't need (or want) Mi
 - **Profiles** (the Profiles view, the `$(layers)` item in the status bar): each one is a build directory with its own build type, generator, toolchain, cache variables and environment. They come from the `cmakeHelper.profiles` setting and from the configure presets in `CMakePresets.json` / `CMakeUserPresets.json`. With neither, there's CLion's default: **Debug** in `cmake-build-debug`. Switching profiles reads that directory's last configure if there is one, and configures otherwise.
 - **Targets** (the Targets view): executables, libraries and custom targets (`add_custom_target`; `showUtilityTargets` turns them off; CTest's dashboard targets are never listed), each with its sources in CMake's source groups. Inline buttons ▶ Run, 🐞 Debug, 🔨 Build. The menu has *Set as Active*, *Edit Run Configuration…*, *Rebuild*, *Go to Definition in CMakeLists* and *Copy Path of the Built File*.
 - **One active target** in the status bar: `$(target) app`, then 🔨 ▶ 🐞. Keys as in CLion: **Ctrl+F9** build, **Shift+F10** run, **Shift+F9** debug, **Alt+Shift+F10** choose the target.
+- **The debug configuration** in the status bar, between the profile and the target: `$(vm) Local` (debugged and run here) or a GDB server configuration (below) that ▶ and 🐞 of the target go through.
 - **Run configurations per target**, edited as CLion's *Run/Debug Configurations* (*Edit Run Configuration…* on a target, or *Edit Configurations…* in the target picker): every target on the left, by kind; on the right its executable (the target's own, another target's, or a file: what a custom target or a library runs after it's built), program arguments, working directory (default: the executable's directory), environment (`A=1;B=2`) and *Before launch: Build*. A custom target with no executable is only built by ▶, as in CLion; 🐞 debugs the program its command runs (`COMMAND app --flag`: `app` with `--flag`, in the command's directory, with `cmake -E env`'s variables), after building what the target depends on (not the target itself, which would run the command). The command comes from the build system, so this needs a Ninja or Makefile generator. They're kept in the workspace settings under `cmakeHelper.runConfigurations`.
 - **Debugging** through C/C++ (`cppdbg`, or `cppvsdbg` with MSVC), CodeLLDB or LLDB DAP: the first one installed, or the one set in `cmakeHelper.debugger`. Extra launch properties go in `cmakeHelper.debugConfiguration`.
 - **CTest in the Test Explorer**: tests are grouped by the target whose executable they run, and by suite for names like `Suite.Test`. Each one sits at its `TEST(…)` / `TEST_CASE("…")` / `BOOST_AUTO_TEST_CASE(…)` in the sources (with ▶ in the gutter), or else at its `add_test`. Running builds the tests' targets first, then calls `ctest` and reads the results from JUnit. Debugging starts the test's command under the debugger. Tests that `gtest_discover_tests` finds only after a build show up once the build is done.
@@ -18,12 +19,29 @@ CMake in VS Code the way CLion does it. Standalone: it doesn't need (or want) Mi
 
 ## Embedded and remote debugging
 
-As CLion's *Embedded GDB Server* and *Remote GDB Server* run configurations: **CMake: Edit GDB Server Configurations…** (or *New GDB Server Configuration…* in the target picker). A configuration chosen in the target picker (it shows there under the targets) is what the toolbar's 🔨, ▶ and 🐞 act on; choosing a target goes back to running it here.
+As CLion's *Embedded GDB Server* and *Remote GDB Server* run configurations: **CMake: Edit GDB Server Configurations…** (or *New…* / *Edit…* in the debug picker). The toolbar's debug picker, between the profile and the target, chooses how the target is debugged and run: *Local*, or one of these configurations. With a configuration chosen, 🐞 on a target (toolbar, Targets view, code lenses) debugs it through that configuration, with the target's program (its run configuration's executable, if it has one set); ▶ does *Download & Run* (or runs it over SSH; a remote one without SSH only debugs, ▶ runs it here). The choice is this workspace's; neither the presets nor the profiles name one.
 
 - **Embedded GDB Server**: a GDB server started here (OpenOCD, SEGGER J-Link, ST-LINK's st-util, pyOCD: *Fill in for* sets the usual arguments), gdb (`gdb-multiarch`, `arm-none-eabi-gdb`…) connected with `target remote`, the program downloaded (*Always*, *If updated*, *Never*) between two reset commands. 🐞 debugs it; ▶ is *Download & Run*: flash, start it (`monitor reset run` by default), detach, no debugger.
 - **Remote GDB Server**: gdb connected to a gdbserver elsewhere, with a sysroot and path mappings. With an SSH host the program is first uploaded (scp) and gdbserver started there over SSH, and ▶ runs it there.
+- **Local Debugger**: a GDB-compatible debugger (GDB/MI) started here that reaches the target itself, with no GDB server: e.g. mdb-gdb (a GDB/MI adapter for Microchip's `mdb`), with the debug tool as `'target remote'` args (`sim`, `pickit5`, `icd4`…; *Fill in for* sets them). The program is downloaded (`load`) and reset as for an embedded one, and ▶ is *Download & Run*. With no `'target remote'` args the program runs under that debugger here.
 
-Debugging goes through C/C++ (`ms-vscode.cpptools`, `cppdbg`), which starts the server and connects. The configurations are kept in the workspace setting `cmakeHelper.gdbConfigurations`.
+Debugging goes through C/C++ (`ms-vscode.cpptools`, `cppdbg`), which starts the server and connects.
+
+Each configuration is either the **project's** or **mine** (*Saved in* in the editor; the debug picker lists them in two groups). The project's are kept in `CMakePresets.json`, in its own (top-level) vendor space `vendor.cmakeHelper.debugConfig`, so they go with the repository and work on a fresh clone; mine the same way in `CMakeUserPresets.json`, CMake's file for one's own presets (made when needed, with only this in it; keep it out of git). Saving the editor rewrites only that part of each file. Configurations in an included preset file are read too, as the project's; one of mine wins over a project's of the same name. A project without a `CMakePresets.json` keeps them all in the workspace setting `cmakeHelper.gdbConfigurations`; with one, the setting's are listed as mine and move into `CMakeUserPresets.json` on the next save. A configuration has no target or program of its own: the chosen target's are used.
+
+```jsonc
+{
+  "version": 3,
+  "configurePresets": [ … ],
+  "vendor": {
+    "cmakeHelper": {
+      "debugConfig": [
+        { "name": "PICkit5", "kind": "embedded", "remote": "localhost:3333", "server": "xc16-gdbserver", "serverArgs": "--tool pickit5", "download": "always" }
+      ]
+    }
+  }
+}
+```
 
 ## Profiles in settings
 
@@ -45,11 +63,11 @@ Debugging goes through C/C++ (`ms-vscode.cpptools`, `cppdbg`), which starts the 
 
 ## Toolbar
 
-`cmakeHelper.toolbar` says where CLion's toolbar (profile, target, Build, Run,
-Debug) goes:
+`cmakeHelper.toolbar` says where CLion's toolbar (profile, debug configuration,
+target, Build, Run, Debug) goes:
 
 - `statusBar` (default): in the status bar.
-- `editorTitle`: Build, Run, Debug and the profile and target pickers as
+- `editorTitle`: Build, Run, Debug and the profile, debug and target pickers as
   buttons at the top of the editors; the names stay in the status bar.
 - `titleBar`: in VS Code's title bar, as in Jarvis's web IDE. An extension
   can't put anything there, so VS Code itself is patched: `media/titlebar.js`
@@ -58,6 +76,16 @@ Debug) goes:
   usually root's, so it asks for your password (pkexec). After a VS Code update
   (which drops the patch) or an update of this extension, it offers to patch
   again. **CMake: Remove the CMake Toolbar from the Title Bar** undoes it.
+
+`cmakeHelper.debugConfigurationPlacement` puts the debug configuration picker
+with the rest of the toolbar (`toolbar`, the default: at the top next to the
+search with `titleBar`) or always at the bottom in the status bar
+(`statusBar`). Each item exists twice, `cmakeHelper.titleBar.<item>` (the
+patched script moves it up) and `cmakeHelper.statusBar.<item>` (it stays
+down); the extension shows one of them, so switching needs no new patch. A
+patch from before 0.1.5 knows neither: patch again once (**CMake: Put the CMake Toolbar in the
+Title Bar**; with the window connected to a remote, from a local window, since the
+patch goes into this machine's VS Code).
 
 ## Updates
 

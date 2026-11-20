@@ -8,19 +8,23 @@
  *   and path mappings; optionally the program uploaded over SSH first and
  *   gdbserver started there. Run then runs it there over SSH.
  *
- * They're kept in the setting `cmakeHelper.gdbConfigurations`; debugging goes
- * through C/C++ (cppdbg), which starts the server and connects by itself.
+ * One of them, chosen in the toolbar's debug picker (or none: here), is what
+ * the chosen target is debugged and run through. They're kept in the
+ * project's CMakePresets.json (top-level `vendor.cmakeHelper.debugConfig`),
+ * or without one in the setting `cmakeHelper.gdbConfigurations`; debugging
+ * goes through C/C++ (cppdbg), which starts the server and connects by itself.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { type Target, executableOf } from "./fileApi";
-import { buildFirst } from "./launcher";
+import { buildFirst, programOf } from "./launcher";
+import { PRESET_FILES, createUserPresets, editPresetFile, presetDebugConfigs } from "./presets";
 import type { CMakeProject } from "./project";
-import { errorText, expand, onPath, parseEnv, settings, splitArgs } from "./util";
+import { errorText, expand, onPath, parseEnv, pathKey, settings, splitArgs } from "./util";
 
-export type GdbKind = "embedded" | "remote";
+export type GdbKind = "embedded" | "remote" | "local";
 export type Download = "always" | "updated" | "never";
 
 export interface GdbConfiguration {
@@ -61,15 +65,115 @@ export interface GdbConfiguration {
   buildBeforeDebug?: boolean;
 }
 
-export const KINDS: Record<GdbKind, string> = { embedded: "Embedded GDB Server", remote: "Remote GDB Server" };
+export const KINDS: Record<GdbKind, string> = { embedded: "Embedded GDB Server", remote: "Remote GDB Server", local: "Local Debugger" };
+/** The codicon of each kind. */
+export const ICON: Record<GdbKind, string> = { embedded: "chip", remote: "remote", local: "debug-console" };
 
-export function gdbConfigurations(): GdbConfiguration[] {
-  const list = settings().get<GdbConfiguration[]>("gdbConfigurations") ?? [];
-  return list.filter((c) => c && typeof c.name === "string" && c.name.trim() && (c.kind === "embedded" || c.kind === "remote"));
+function isConfiguration(c: unknown): c is GdbConfiguration {
+  const x = c as GdbConfiguration | undefined;
+  return !!x && typeof x === "object" && typeof x.name === "string" && !!x.name.trim() && x.kind in KINDS;
 }
 
-export function gdbConfiguration(name: string | undefined): GdbConfiguration | undefined {
-  return name ? gdbConfigurations().find((c) => c.name === name) : undefined;
+/** The setting's configurations: where they're kept in a project without a CMakePresets.json (and where they were before). */
+export function gdbConfigurations(): GdbConfiguration[] {
+  return (settings().get<unknown[]>("gdbConfigurations") ?? []).filter(isConfiguration);
+}
+
+/** The CMakePresets.json the configurations are saved into, if the project has one. */
+function presetsFileOf(sourceDir: string): string | undefined {
+  const file = path.join(sourceDir, PRESET_FILES[0]!);
+  return fs.existsSync(file) ? file : undefined;
+}
+
+/** Where a configuration is kept: the project's (CMakePresets.json, in the repository) or mine (CMakeUserPresets.json, not shared). */
+export type Scope = "project" | "user";
+
+export interface ScopedConfiguration {
+  config: GdbConfiguration;
+  scope: Scope;
+}
+
+/**
+ * All the project's GDB server configurations, by name once, the project's
+ * first: those of CMakePresets.json (and its includes), mine from
+ * CMakeUserPresets.json (which win over a project's of the same name), and
+ * the setting's, which are mine too.
+ */
+export function scopedConfigurations(sourceDir: string): ScopedConfiguration[] {
+  const userFile = pathKey(path.join(sourceDir, PRESET_FILES[1]!));
+  const fromPresets = presetDebugConfigs(sourceDir);
+  const mine = [...fromPresets.filter((p) => pathKey(p.file) === userFile).map((p) => p.config), ...gdbConfigurations()];
+  const projects = fromPresets.filter((p) => pathKey(p.file) !== userFile).map((p) => p.config);
+  const user: ScopedConfiguration[] = [];
+  for (const c of mine) if (isConfiguration(c) && !user.some((x) => x.config.name === c.name)) user.push({ config: c, scope: "user" });
+  const project: ScopedConfiguration[] = [];
+  for (const c of projects) if (isConfiguration(c) && !project.some((x) => x.config.name === c.name) && !user.some((x) => x.config.name === c.name)) project.push({ config: c, scope: "project" });
+  return [...project, ...user];
+}
+
+export function debugConfigurations(sourceDir: string): GdbConfiguration[] {
+  return scopedConfigurations(sourceDir).map((x) => x.config);
+}
+
+/** Whether configurations can be kept in preset files: the project has a CMakePresets.json. */
+export function hasPresetsFile(sourceDir: string): boolean {
+  return presetsFileOf(sourceDir) !== undefined;
+}
+
+export function debugConfiguration(sourceDir: string, name: string | undefined): GdbConfiguration | undefined {
+  return name ? debugConfigurations(sourceDir).find((c) => c.name === name) : undefined;
+}
+
+/** A configuration as the presets file keeps it: without a target or program of its own, the chosen target's are used. */
+function forPresets(c: GdbConfiguration): GdbConfiguration {
+  const { target: _target, program: _program, ...rest } = c;
+  return rest;
+}
+
+/** A preset file's configurations (top-level `vendor.cmakeHelper.debugConfig`; none: removed). */
+function writeConfigurations(file: string, list: GdbConfiguration[]): void {
+  const ok = editPresetFile(file, (h) => {
+    if (list.length) h.debugConfig = list.map(forPresets);
+    else delete h.debugConfig;
+  });
+  if (!ok) throw new Error(`Can't write the configurations into ${file}.`);
+}
+
+/**
+ * Saves the configurations, each where its scope says: the project's into
+ * CMakePresets.json, mine into CMakeUserPresets.json (made when there's none
+ * yet); the setting's move to the latter. Without a CMakePresets.json all go
+ * into the setting.
+ */
+export async function saveDebugConfigurations(sourceDir: string, list: ScopedConfiguration[]): Promise<void> {
+  const file = presetsFileOf(sourceDir);
+  if (!file) {
+    await settings().update("gdbConfigurations", list.map((x) => x.config), vscode.ConfigurationTarget.Workspace);
+    return;
+  }
+  const of = (scope: Scope) => list.filter((x) => x.scope === scope).map((x) => x.config);
+  writeConfigurations(file, of("project"));
+  const mine = of("user");
+  let userFile: string | undefined = path.join(sourceDir, PRESET_FILES[1]!);
+  if (!fs.existsSync(userFile)) userFile = mine.length ? createUserPresets(sourceDir) : undefined;
+  if (userFile) writeConfigurations(userFile, mine);
+  if (settings().inspect("gdbConfigurations")?.workspaceValue !== undefined) await settings().update("gdbConfigurations", undefined, vscode.ConfigurationTarget.Workspace);
+}
+
+/**
+ * The chosen debug configuration for this target (the target and its
+ * program in place of the configuration's own); none: the target is debugged
+ * and run here. Only a target with a program to debug goes through it.
+ */
+export function debugConfigurationFor(project: CMakeProject, target: Target): GdbConfiguration | undefined {
+  const c = project.activeGdbConfiguration;
+  const program = c && programOf(project, target);
+  return c && program ? { ...c, target: target.name, program } : undefined;
+}
+
+/** What ▶ can do with a configuration: Download & Run, or run it over SSH. Remote without SSH only debugs. */
+export function canRun(c: GdbConfiguration): boolean {
+  return c.kind === "embedded" || (c.kind === "local" && !!c.remote?.trim()) || !!c.ssh?.trim();
 }
 
 /** The debugger when the configuration names none: one for any architecture if there is one. */
@@ -167,9 +271,11 @@ export async function debugWithConfiguration(project: CMakeProject, c: GdbConfig
     stopAtEntry: false,
   };
 
-  if (c.kind === "embedded") {
-    config.miDebuggerServerAddress = ex(c.remote, r.vars).replace(/^tcp:/, "");
-    if (c.server?.trim()) {
+  if (c.kind === "embedded" || c.kind === "local") {
+    // Local: a debugger that reaches the target itself (mdb-gdb: `target remote pickit5`), or with no target the program run under it here.
+    const remote = ex(c.remote ?? "", r.vars).replace(/^tcp:/, "").trim();
+    if (remote) config.miDebuggerServerAddress = remote;
+    if (c.kind === "embedded" && c.server?.trim()) {
       const server = resolveProgram(ex(c.server.trim(), r.vars));
       if (!server) {
         void vscode.window.showErrorMessage(`“${c.name}”: the GDB server ${c.server} isn't installed here (not on PATH).`);
@@ -188,8 +294,8 @@ export async function debugWithConfiguration(project: CMakeProject, c: GdbConfig
     const reset = c.resetCommand?.trim();
     const mode = c.download ?? "always";
     const print = fingerprint(r.program);
-    const download = mode === "always" || (mode === "updated" && project.workspaceState.get(downloadedKey(c)) !== print);
-    if (reset) connect.push({ text: reset });
+    const download = !!remote && (mode === "always" || (mode === "updated" && project.workspaceState.get(downloadedKey(c)) !== print));
+    if (reset && remote) connect.push({ text: reset });
     if (download) {
       connect.push({ text: "load" });
       if (reset) connect.push({ text: reset });
@@ -253,7 +359,7 @@ async function upload(project: CMakeProject, c: GdbConfiguration, program: strin
  * upload and run it there. Remote without SSH: only the debugger reaches it.
  */
 export async function runWithConfiguration(project: CMakeProject, c: GdbConfiguration): Promise<void> {
-  if (c.kind === "remote" && !c.ssh?.trim()) {
+  if (!canRun(c)) {
     void vscode.window.showInformationMessage(`“${c.name}” reaches its target only through gdb: debug it (Shift+F9), or set an SSH host to run it there.`);
     return;
   }
@@ -333,6 +439,8 @@ export interface GdbRow {
   initCommands: string;
   connectCommands: string;
   buildBeforeDebug: boolean;
+  /** Where it's kept: the project's or mine. */
+  scope: Scope;
   rest: Record<string, unknown>;
 }
 
@@ -342,7 +450,7 @@ const lines = (l: string[] | undefined) => (l ?? []).join("\n");
 const unlines = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
 const mappings = (m: Record<string, string> | undefined) => Object.entries(m ?? {}).map(([a, b]) => `${a}=${b}`).join("\n");
 
-export function toRow(c: GdbConfiguration): GdbRow {
+export function toRow(c: GdbConfiguration, scope: Scope = "project"): GdbRow {
   const rest: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c)) if (!SHOWN.includes(k)) rest[k] = v;
   return {
@@ -370,6 +478,7 @@ export function toRow(c: GdbConfiguration): GdbRow {
     initCommands: lines(c.initCommands),
     connectCommands: lines(c.connectCommands),
     buildBeforeDebug: c.buildBeforeDebug ?? true,
+    scope,
     rest,
   };
 }
@@ -386,11 +495,13 @@ export function fromRow(r: GdbRow): GdbConfiguration {
   set("initCommands", unlines(r.initCommands));
   set("connectCommands", unlines(r.connectCommands));
   if (!r.buildBeforeDebug) c.buildBeforeDebug = false;
-  if (r.kind === "embedded") {
-    set("server", r.server.trim());
-    set("serverArgs", r.serverArgs.trim());
-    set("serverReady", r.serverReady.trim());
-    set("serverEnvironment", parseEnv(r.serverEnvironment.trim()));
+  if (r.kind === "embedded" || r.kind === "local") {
+    if (r.kind === "embedded") {
+      set("server", r.server.trim());
+      set("serverArgs", r.serverArgs.trim());
+      set("serverReady", r.serverReady.trim());
+      set("serverEnvironment", parseEnv(r.serverEnvironment.trim()));
+    }
     c.download = r.download;
     set("resetCommand", r.resetCommand.trim());
     set("runCommands", unlines(r.runCommands));
@@ -418,7 +529,8 @@ export function problem(rows: GdbRow[]): string | undefined {
     if (!name) return "Every configuration needs a name.";
     if (seen.has(name)) return `There are two configurations named “${name}”.`;
     seen.add(name);
-    if (!r.remote.trim() && !(r.kind === "remote" && r.ssh.trim())) return `“${name}” needs the 'target remote' address (e.g. localhost:3333).`;
+    if (r.kind === "local" && !r.debugger.trim()) return `“${name}” needs its debugger (e.g. /opt/microchip/mdb-gdb/mdb-gdb).`;
+    if (!r.remote.trim() && r.kind !== "local" && !(r.kind === "remote" && r.ssh.trim())) return `“${name}” needs the 'target remote' address (e.g. localhost:3333).`;
     if (r.serverReady.trim()) {
       try {
         new RegExp(r.serverReady.trim());

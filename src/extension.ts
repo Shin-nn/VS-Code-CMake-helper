@@ -11,7 +11,7 @@ import { LensProvider } from "./codeLens";
 import { debugTarget, programOf, runTarget } from "./launcher";
 import { openRunConfigEditor } from "./runConfigEditor";
 import { openGdbEditor } from "./gdbEditor";
-import { type GdbConfiguration, KINDS, debugWithConfiguration, gdbConfigurations, runWithConfiguration } from "./gdbConfigs";
+import { ICON, KINDS, canRun, debugConfigurationFor, debugWithConfiguration, runWithConfiguration, scopedConfigurations } from "./gdbConfigs";
 import { openProfileEditor } from "./profileEditor";
 import { removeProfile } from "./profiles";
 import { CMakeProject } from "./project";
@@ -199,23 +199,24 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     if (!p.model && !(await p.configure())) return;
-    const pick = await pickTargetOrConfiguration(p);
+    const pick = await pickTargetOrEdit(p);
     if (!pick) return;
-    if ("target" in pick) await p.setActiveTarget(pick.target.name);
-    else if (pick.gdb) await p.setActiveGdbConfiguration(pick.gdb.name);
-    else if (pick.action === "run") openRunConfigEditor(p);
-    else openGdbEditor(p, { add: pick.action === "new" });
+    if (pick.target) await p.setActiveTarget(pick.target.name);
+    else openRunConfigEditor(p);
+  });
+  // How the target is debugged and run: here, or through a GDB server configuration (the toolbar's item between the profile and the target).
+  command("cmakeHelper.selectDebugConfiguration", async (arg?: unknown) => {
+    const p = project;
+    if (!p) return;
+    if (typeof arg === "string") return p.setActiveGdbConfiguration(arg || undefined);
+    const pick = await pickDebugConfiguration(p);
+    if (!pick) return;
+    if (pick.action) openGdbEditor(p, { add: pick.action === "new", select: p.activeGdbConfiguration?.name });
+    else await p.setActiveGdbConfiguration(pick.name);
   });
 
-  /** With no target given and a GDB server configuration chosen: its target. */
-  const gdbTarget = async (arg: unknown): Promise<Target | undefined> => {
-    const gdb = arg === undefined ? project?.activeGdbConfiguration : undefined;
-    if (gdb?.target) return targetOf(gdb.target);
-    return targetOf(arg);
-  };
-
   command("cmakeHelper.build", async (arg?: unknown) => {
-    const t = await gdbTarget(arg);
+    const t = await targetOf(arg);
     if (t) await project!.build([t.name]);
   });
   command("cmakeHelper.rebuild", async (arg?: unknown) => {
@@ -225,25 +226,22 @@ export function activate(context: vscode.ExtensionContext): void {
   command("cmakeHelper.buildAll", withProject((p) => p.build()));
   command("cmakeHelper.rebuildAll", withProject((p) => p.build([], { cleanFirst: true })));
   command("cmakeHelper.clean", withProject((p) => p.build([], { clean: true })));
-  // A code lens or a tree item names its target; the toolbar's ▶ and 🐞 (no argument) mean the chosen configuration.
+  // A code lens or a tree item names its target, the toolbar's ▶ and 🐞 mean the active one; the chosen debug configuration applies to either.
   command("cmakeHelper.run", async (arg?: unknown) => {
-    const gdb = arg === undefined ? project?.activeGdbConfiguration : undefined;
-    if (gdb) {
-      if (project!.model || (await project!.configure())) await runWithConfiguration(project!, gdb);
-      return;
-    }
     // Any target: one without a program to run (a custom target) is built, as CLion does.
     const t = await targetOf(arg);
-    if (t) await runTarget(project!, t);
+    if (!t) return;
+    // Through the GDB server configuration when it can run it (Download & Run, or over SSH).
+    const viaGdb = debugConfigurationFor(project!, t);
+    if (viaGdb && canRun(viaGdb)) await runWithConfiguration(project!, viaGdb);
+    else await runTarget(project!, t);
   });
   command("cmakeHelper.debug", async (arg?: unknown) => {
-    const gdb = arg === undefined ? project?.activeGdbConfiguration : undefined;
-    if (gdb) {
-      if (project!.model || (await project!.configure())) await debugWithConfiguration(project!, gdb);
-      return;
-    }
     const t = await targetOf(arg);
-    if (t) await debugTarget(project!, t);
+    if (!t) return;
+    const viaGdb = debugConfigurationFor(project!, t);
+    if (viaGdb) await debugWithConfiguration(project!, viaGdb);
+    else await debugTarget(project!, t);
   });
   command("cmakeHelper.editGdbConfigurations", (name?: string) => {
     if (project) openGdbEditor(project, { select: typeof name === "string" ? name : project.activeGdbConfiguration?.name });
@@ -320,34 +318,45 @@ async function pickTarget(p: CMakeProject, executable: boolean): Promise<Target 
   return pick?.target;
 }
 
-type TargetOrConfiguration = { target: Target } | { gdb: GdbConfiguration; action?: undefined } | { gdb?: undefined; action: "new" | "edit" | "run" };
-
-/** The target picker as CLion's run configuration combo: the targets, then the GDB server configurations. */
-async function pickTargetOrConfiguration(p: CMakeProject): Promise<TargetOrConfiguration | undefined> {
-  const gdbActive = p.activeGdbConfiguration?.name;
-  const active = gdbActive ? undefined : p.activeTarget?.name;
-  type Item = vscode.QuickPickItem & { value?: TargetOrConfiguration };
+/** The target picker: the targets, then the run configurations' editor. */
+async function pickTargetOrEdit(p: CMakeProject): Promise<{ target?: Target } | undefined> {
+  const active = p.activeTarget?.name;
+  type Item = vscode.QuickPickItem & { value?: { target?: Target } };
   const items: Item[] = p.visibleTargets().map((t) => ({
     label: `${t.name === active ? "$(check) " : ""}${t.name}`,
     description: t.type === "EXECUTABLE" ? "executable" : t.type.toLowerCase().replace("_", " "),
     detail: t.definition ? path.relative(p.sourceDir, t.definition.file) + `:${t.definition.line}` : undefined,
     value: { target: t },
   }));
-  items.push({ label: "GDB Server Configurations", kind: vscode.QuickPickItemKind.Separator });
-  for (const c of gdbConfigurations()) {
-    items.push({
-      label: `${c.name === gdbActive ? "$(check) " : ""}$(${c.kind === "embedded" ? "chip" : "remote"}) ${c.name}`,
-      description: [KINDS[c.kind], c.target, c.ssh || c.remote].filter(Boolean).join(" · "),
-      value: { gdb: c },
-    });
+  items.push({ label: "", kind: vscode.QuickPickItemKind.Separator }, { label: "$(gear) Edit Configurations…", description: "the targets' run configurations", value: {} });
+  const pick = await vscode.window.showQuickPick(items, { title: `CMake Target [${p.activeProfile.name}]`, matchOnDescription: true });
+  return pick?.value;
+}
+
+/** The debug picker: here, or one of the GDB server configurations; then new and edit. */
+async function pickDebugConfiguration(p: CMakeProject): Promise<{ name?: string; action?: "new" | "edit" } | undefined> {
+  const active = p.activeGdbConfiguration?.name;
+  type Item = vscode.QuickPickItem & { value: { name?: string; action?: "new" | "edit" } };
+  const items: Item[] = [{ label: `${active ? "" : "$(check) "}$(vm) Local`, description: "debugged and run here", value: {} }];
+  // The project's (CMakePresets.json), then mine (CMakeUserPresets.json or the setting).
+  const list = scopedConfigurations(p.sourceDir);
+  for (const scope of ["project", "user"] as const) {
+    const of = list.filter((x) => x.scope === scope);
+    if (of.length) items.push({ label: scope === "project" ? "Project's GDB Server Configurations" : "My GDB Server Configurations", kind: vscode.QuickPickItemKind.Separator, value: {} });
+    for (const { config: c } of of) {
+      items.push({
+        label: `${c.name === active ? "$(check) " : ""}$(${ICON[c.kind]}) ${c.name}`,
+        description: [KINDS[c.kind], c.server, c.ssh || c.remote].filter(Boolean).join(" · "),
+        value: { name: c.name },
+      });
+    }
   }
   items.push(
-    { label: "", kind: vscode.QuickPickItemKind.Separator },
-    { label: "$(gear) Edit Configurations…", description: "the targets' run configurations", value: { action: "run" } },
+    { label: "", kind: vscode.QuickPickItemKind.Separator, value: {} },
     { label: "$(add) New GDB Server Configuration…", value: { action: "new" } },
-    { label: "$(chip) Edit GDB Server Configurations…", value: { action: "edit" } },
+    { label: "$(gear) Edit GDB Server Configurations…", value: { action: "edit" } },
   );
-  const pick = await vscode.window.showQuickPick(items, { title: `CMake Target [${p.activeProfile.name}]`, matchOnDescription: true });
+  const pick = await vscode.window.showQuickPick(items, { title: "Debug and run through", matchOnDescription: true });
   return pick?.value;
 }
 

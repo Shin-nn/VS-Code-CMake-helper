@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { type Model, type Target, executableOf, multiConfigGenerator, readReply, writeQuery } from "./fileApi";
-import { type GdbConfiguration, gdbConfiguration } from "./gdbConfigs";
+import { type GdbConfiguration, debugConfiguration } from "./gdbConfigs";
 import { type Profile, loadProfiles } from "./profiles";
 import { presetFiles } from "./presets";
 import { debounce, errorText, exists, expand, isWindows, pathKey, run, settings } from "./util";
@@ -174,16 +174,14 @@ export class CMakeProject implements vscode.Disposable {
     return visible.find((t) => t.name === name) ?? visible.find((t) => t.type === "EXECUTABLE") ?? visible[0];
   }
 
-  /** Choosing a target leaves a GDB server configuration chosen before. */
   async setActiveTarget(name: string): Promise<void> {
     await this.context.workspaceState.update(ACTIVE_TARGET, name);
-    await this.context.workspaceState.update(ACTIVE_GDB, undefined);
     this.changed.fire();
   }
 
-  /** The GDB server configuration chosen in place of a target (CLion's run configuration), if any. */
+  /** The GDB server configuration the targets are debugged and run through (the toolbar's debug picker); none: here. */
   get activeGdbConfiguration(): GdbConfiguration | undefined {
-    return gdbConfiguration(this.context.workspaceState.get<string>(ACTIVE_GDB));
+    return debugConfiguration(this.sourceDir, this.context.workspaceState.get<string>(ACTIVE_GDB));
   }
 
   async setActiveGdbConfiguration(name: string | undefined): Promise<void> {

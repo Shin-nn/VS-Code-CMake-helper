@@ -1,27 +1,26 @@
 /*
- * CLion's toolbar in VS Code's title bar: the CMake profile and target, then
- * Build, Run and Debug, next to the command center. An extension can't put
+ * CLion's toolbar in VS Code's title bar: the CMake profile, the debug
+ * configuration and the target, then Build, Run and Debug, next to the
+ * command center. An extension can't put
  * anything in the title bar, so CMake Helper copies this script next to VS
  * Code's workbench.html and adds it there (src/titleBar.ts). It draws nothing
  * of its own: it mirrors the extension's status bar items (text, icon,
  * tooltip, colours) and a click on one clicks the item, so the extension
- * keeps all the logic. While it's shown, those status bar items are hidden.
+ * keeps all the logic. It takes the items whose id says they belong up here
+ * (`cmakeHelper.titleBar.<key>`), in the status bar's order; the extension
+ * shows those or their bottom twins (`cmakeHelper.statusBar.<key>`), so it
+ * decides what's up here and this script needs no update for a new item.
+ * While they're shown, those status bar items are hidden.
  * Plain DOM, no innerHTML: the workbench requires trusted types.
  */
 (() => {
-  const PREFIX = "cernik.vs-code-cmake-helper.cmakeHelper.";
-  /** The mirrored items, in the toolbar's order; `group` items share one bordered box, like CLion's run configuration. */
-  const ITEMS = [
-    { id: "reload", kind: "text" },
-    { id: "profile", kind: "text", group: true },
-    { id: "target", kind: "text", group: true },
-    { id: "build", kind: "icon" },
-    { id: "run", kind: "icon", color: "run" },
-    { id: "debug", kind: "icon", color: "run" },
-  ];
+  const PREFIX = "cernik.vs-code-cmake-helper.cmakeHelper.titleBar.";
+  /** How an item looks by its key: Build, Run and Debug are icons, the rest text; the pickers share one bordered box, like CLion's run configuration. */
+  const ICONS = { build: {}, run: { color: "run" }, debug: { color: "run" } };
+  const itemOf = (key) => (key in ICONS ? { id: key, kind: "icon", ...ICONS[key] } : { id: key, kind: "text", group: key !== "reload" });
 
   const css = `
-body.cmake-helper-toolbar ${ITEMS.map((i) => `#${CSS.escape(PREFIX + i.id)}`).join(", ")} { display: none !important; }
+body.cmake-helper-toolbar [id^="${PREFIX}"] { display: none !important; }
 /* Above the title bar's drag region, as VS Code's own toolbars are. */
 .cmake-helper-toolbar-bar { position: relative; z-index: 2500; display: flex; align-items: center; gap: 2px; height: 100%; padding: 0 6px; -webkit-app-region: no-drag; app-region: no-drag; }
 .cmake-helper-toolbar-bar button { display: flex; align-items: center; gap: 4px; height: 22px; padding: 0 5px; border: 0; border-radius: 5px; background: none;
@@ -85,7 +84,10 @@ body.cmake-helper-toolbar ${ITEMS.map((i) => `#${CSS.escape(PREFIX + i.id)}`).jo
 
   function render() {
     const right = document.querySelector(".part.titlebar .titlebar-right");
-    const present = ITEMS.map((item) => ({ item, a: original(item.id) })).filter((x) => x.a);
+    // The status bar's items for up here, in its order (the extension's priorities: the toolbar's order).
+    const present = [...document.querySelectorAll(`[id^="${PREFIX}"]`)]
+      .map((el) => ({ item: itemOf(el.id.slice(PREFIX.length)), a: el.querySelector("a.statusbar-item-label") }))
+      .filter((x) => x.a);
     // No project (or no title bar): the status bar shows whatever there is.
     if (!right || !present.length) {
       bar?.remove();

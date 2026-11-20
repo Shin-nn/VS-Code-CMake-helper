@@ -1,15 +1,19 @@
 /**
  * The GDB server configurations editor, as CLion's Run/Debug Configurations
- * for "Embedded GDB Server" and "Remote GDB Server": the list on the left, the
+ * for "Embedded GDB Server" and "Remote GDB Server", and a "Local Debugger"
+ * (a GDB-compatible debugger that reaches the target itself, like mdb-gdb):
+ * the list on the left, the
  * selected one's fields on the right (those of its kind), OK / Cancel / Apply.
- * It edits the workspace setting `cmakeHelper.gdbConfigurations`.
+ * Each is the project's, saved into CMakePresets.json (top-level
+ * `vendor.cmakeHelper.debugConfig`, in the repository), or mine, saved the
+ * same way into CMakeUserPresets.json; without a CMakePresets.json all go
+ * into the workspace setting `cmakeHelper.gdbConfigurations`.
  */
 import * as crypto from "node:crypto";
 import * as vscode from "vscode";
 import { editorIcon, editorPage } from "./editorPage";
-import { type GdbRow, defaultDebugger, fromRow, gdbConfigurations, problem, toRow } from "./gdbConfigs";
+import { type GdbRow, defaultDebugger, fromRow, hasPresetsFile, problem, saveDebugConfigurations, scopedConfigurations, toRow } from "./gdbConfigs";
 import type { CMakeProject } from "./project";
-import { settings } from "./util";
 
 let panel: vscode.WebviewPanel | undefined;
 
@@ -17,9 +21,8 @@ let panel: vscode.WebviewPanel | undefined;
 export function openGdbEditor(project: CMakeProject, opts: { select?: string; add?: boolean } = {}): void {
   const init = () => ({
     type: "init",
-    rows: gdbConfigurations().map(toRow),
-    targets: project.visibleTargets().filter((t) => t.type === "EXECUTABLE").map((t) => t.name),
-    activeTarget: project.activeTarget?.name ?? "",
+    rows: scopedConfigurations(project.sourceDir).map((x) => toRow(x.config, x.scope)),
+    scopes: hasPresetsFile(project.sourceDir),
     active: project.activeGdbConfiguration?.name ?? "",
     defaultDebugger: defaultDebugger(),
     select: opts.select,
@@ -54,7 +57,7 @@ export function openGdbEditor(project: CMakeProject, opts: { select?: string; ad
         else if (row.name.trim() !== active) await project.setActiveGdbConfiguration(row.name.trim());
       }
       try {
-        await settings().update("gdbConfigurations", msg.rows.map(fromRow), vscode.ConfigurationTarget.Workspace);
+        await saveDebugConfigurations(project.sourceDir, msg.rows.map((r) => ({ config: fromRow(r), scope: r.scope })));
       } catch (e) {
         void panel?.webview.postMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
         return;
@@ -65,13 +68,12 @@ export function openGdbEditor(project: CMakeProject, opts: { select?: string; ad
   });
 }
 
-const DATALISTS = `<datalist id="debuggers"><option value="gdb-multiarch"><option value="arm-none-eabi-gdb"><option value="gdb"></datalist>
-<datalist id="targets"></datalist>`;
+const DATALISTS = `<datalist id="debuggers"><option value="gdb-multiarch"><option value="arm-none-eabi-gdb"><option value="gdb"><option value="/opt/microchip/mdb-gdb/mdb-gdb"></datalist>`;
 
 /** The editor's script: the list, the form of the selected configuration's kind, and the presets for common GDB servers. */
 const SCRIPT = String.raw`
 const vscode = acquireVsCodeApi();
-let rows = [], sel = null, dirty = false, active = "", defaultDebugger = "gdb", activeTarget = "";
+let rows = [], sel = null, dirty = false, active = "", defaultDebugger = "gdb", scopes = false;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -85,7 +87,13 @@ const PRESETS = {
   pyocd: { label: "pyOCD", server: "pyocd", serverArgs: "gdbserver --target stm32f407vg --port 3333", serverReady: "GDB server listening on port", remote: "localhost:3333", resetCommand: "monitor reset halt", runCommands: "monitor reset" },
 };
 
-const EMPTY = { kind: "embedded", target: "", program: "", debugger: "", remote: "", server: "", serverArgs: "", serverReady: "", serverEnvironment: "", download: "always", resetCommand: "", runCommands: "", sysroot: "", pathMappings: "", ssh: "", remotePath: "", gdbserver: "", args: "", initCommands: "", connectCommands: "", buildBeforeDebug: true, rest: {} };
+/** Local debuggers: what fills in for each. */
+const LOCAL_PRESETS = {
+  mdbPickit5: { label: "mdb-gdb, PICkit 5", debugger: "/opt/microchip/mdb-gdb/mdb-gdb", remote: "pickit5", resetCommand: "monitor reset", runCommands: "monitor run" },
+  mdbSim: { label: "mdb-gdb, simulator", debugger: "/opt/microchip/mdb-gdb/mdb-gdb", remote: "sim", resetCommand: "monitor reset", runCommands: "monitor run" },
+};
+
+const EMPTY = { kind: "embedded", target: "", program: "", debugger: "", remote: "", server: "", serverArgs: "", serverReady: "", serverEnvironment: "", download: "always", resetCommand: "", runCommands: "", sysroot: "", pathMappings: "", ssh: "", remotePath: "", gdbserver: "", args: "", initCommands: "", connectCommands: "", buildBeforeDebug: true, scope: "project", rest: {} };
 
 function freeName(base) {
   const taken = new Set(rows.map((r) => r.name.trim()));
@@ -101,7 +109,7 @@ function setDirty(v) {
 
 function renderList() {
   $("list").innerHTML = rows.map((r) => {
-    const tag = r.origName && r.origName === active ? '<span class="tag">chosen</span>' : '<span class="tag">' + (r.kind === "embedded" ? "embedded" : "remote") + "</span>";
+    const tag = r.origName && r.origName === active ? '<span class="tag">chosen</span>' : '<span class="tag">' + (scopes && r.scope === "user" ? "mine" : r.kind) + "</span>";
     return '<li class="' + (r.id === sel ? "sel" : "") + '" data-id="' + esc(r.id) + '">' + esc(r.name || "(unnamed)") + tag + "</li>";
   }).join("");
   const r = current();
@@ -135,14 +143,20 @@ function renderForm() {
     return;
   }
   const emb = r.kind === "embedded";
+  const local = r.kind === "local";
+  const kind = (value, label) => '<label><input type="radio" name="kind" data-k="kind" value="' + value + '"' + (r.kind === value ? " checked" : "") + "> " + label + "</label>";
   let h = '<div class="grid">' +
     input("Name", "name", r.name) +
-    '<label>Kind:</label><div class="radios">' +
-      '<label><input type="radio" name="kind" data-k="kind" value="embedded"' + (emb ? " checked" : "") + "> Embedded GDB Server</label>" +
-      '<label><input type="radio" name="kind" data-k="kind" value="remote"' + (!emb ? " checked" : "") + "> Remote GDB Server</label></div>" +
-    input("Target", "target", r.target, { list: "targets", placeholder: "the active target (" + (activeTarget || "none") + ")", hint: "The CMake executable that's debugged" + (emb ? " and flashed" : "") + "; it's built first." }) +
-    input("Executable", "program", r.program, { placeholder: "the target's", hint: "Another file instead (an .elf built some other way)." }) +
-    input("Debugger", "debugger", r.debugger, { list: "debuggers", placeholder: defaultDebugger, hint: "A gdb that knows the target's architecture." }) +
+    '<label>Kind:</label><div class="radios">' + kind("embedded", "Embedded GDB Server") + kind("remote", "Remote GDB Server") + kind("local", "Local Debugger") + "</div>" +
+    (scopes
+      ? '<label>Saved in:</label><div><div class="radios">' +
+        '<label><input type="radio" name="scope" data-k="scope" value="project"' + (r.scope !== "user" ? " checked" : "") + "> Project (CMakePresets.json)</label>" +
+        '<label><input type="radio" name="scope" data-k="scope" value="user"' + (r.scope === "user" ? " checked" : "") + "> Mine (CMakeUserPresets.json)</label></div>" +
+        '<div class="hint">The project\'s go with the repository; mine stay on this machine (keep CMakeUserPresets.json out of git).</div></div>'
+      : "") +
+    (local
+      ? input("Debugger", "debugger", r.debugger, { list: "debuggers", placeholder: "/opt/microchip/mdb-gdb/mdb-gdb", hint: "A GDB-compatible debugger (GDB/MI) started here that reaches the target itself; no GDB server." })
+      : input("Debugger", "debugger", r.debugger, { list: "debuggers", placeholder: defaultDebugger, hint: "A gdb that knows the target's architecture." })) +
     "<span></span><label class=\"check\"><input type=\"checkbox\" data-k=\"buildBeforeDebug\"" + (r.buildBeforeDebug ? " checked" : "") + "> Build before debugging</label>";
   if (emb) {
     h += sec("GDB server") +
@@ -157,6 +171,16 @@ function renderForm() {
       sec("Download") +
       select("Download executable", "download", r.download, [["always", "Always"], ["updated", "If updated"], ["never", "Never"]], "Flash the program when debugging starts.") +
       input("Reset command", "resetCommand", r.resetCommand, { placeholder: "monitor reset halt", hint: "Before the download, and again after it." }) +
+      input("Download & Run starts it with", "runCommands", r.runCommands, { area: true, placeholder: "monitor reset run", hint: "gdb commands, one per line, after the download (▶ Run, without a debugger)." });
+  } else if (local) {
+    h += sec("Target") +
+      '<label>Fill in for:</label><div><select id="localPreset"><option value="">Choose a debugger…</option>' +
+        Object.entries(LOCAL_PRESETS).map(([k, p]) => '<option value="' + k + '">' + esc(p.label) + "</option>").join("") +
+        "</select></div>" +
+      input("'target remote' args", "remote", r.remote, { placeholder: "none: the program runs under the debugger here", hint: "What the debugger gets as <code>target remote</code>: for mdb-gdb the debug tool (<code>sim</code>, <code>pickit5</code>, <code>icd4</code>, <code>pickit4:1</code>, <code>pickit5,device=…</code>)." }) +
+      sec("Download") +
+      select("Download executable", "download", r.download, [["always", "Always"], ["updated", "If updated"], ["never", "Never"]], "Program the device when debugging starts (gdb <code>load</code>).") +
+      input("Reset command", "resetCommand", r.resetCommand, { placeholder: "monitor reset", hint: "Before the download, and again after it." }) +
       input("Download & Run starts it with", "runCommands", r.runCommands, { area: true, placeholder: "monitor reset run", hint: "gdb commands, one per line, after the download (▶ Run, without a debugger)." });
   } else {
     h += sec("Connection") +
@@ -191,6 +215,16 @@ $("list").addEventListener("click", (e) => {
 $("form").addEventListener("input", (e) => {
   const r = current();
   if (!r) return;
+  if (e.target.id === "localPreset") {
+    const p = LOCAL_PRESETS[e.target.value];
+    if (!p) return;
+    for (const k of ["debugger", "remote", "resetCommand", "runCommands"]) r[k] = p[k];
+    r.download = "always";
+    if (/^(Embedded|New|Local)/.test(r.name)) r.name = freeName(p.label);
+    setDirty(true);
+    render();
+    return;
+  }
   if (e.target.id === "preset") {
     const p = PRESETS[e.target.value];
     if (!p) return;
@@ -204,7 +238,7 @@ $("form").addEventListener("input", (e) => {
   if (!k) return;
   r[k] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
   setDirty(true);
-  if (k === "kind") render();
+  if (k === "kind" || k === "scope") render();
   else if (k === "name") renderList();
   else if (k === "ssh") renderForm();
 });
@@ -259,8 +293,7 @@ window.addEventListener("message", (e) => {
   const m = e.data;
   if (m.type === "init" || m.type === "saved") {
     const keep = m.type === "saved" && current() ? current().name.trim() : null;
-    rows = m.rows; active = m.active; defaultDebugger = m.defaultDebugger; activeTarget = m.activeTarget;
-    $("targets").innerHTML = m.targets.map((t) => '<option value="' + esc(t) + '">').join("");
+    rows = m.rows; active = m.active; defaultDebugger = m.defaultDebugger; scopes = m.scopes;
     if (m.type === "saved") sel = (keep && rows.find((r) => r.name === keep)?.id) || rows[0]?.id || null;
     else sel = (m.select && rows.find((r) => r.origName === m.select)?.id) || rows.find((r) => r.origName === active)?.id || rows[0]?.id || null;
     setDirty(false);

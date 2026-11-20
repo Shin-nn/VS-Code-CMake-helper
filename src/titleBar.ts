@@ -54,7 +54,8 @@ export class TitleBar {
     const wanted = settings().get<string>("toolbar") === "titleBar";
     const state = this.state();
     if (wanted && state === "unsupported") {
-      void vscode.window.showWarningMessage("CMake's toolbar in the title bar works only in desktop VS Code with a local workspace; here it stays in the status bar.");
+      // Connected to a remote: the window's own VS Code may well be patched (from a local window); only the web never is.
+      if (!vscode.env.remoteName) void vscode.window.showWarningMessage("CMake's toolbar in the title bar works only in desktop VS Code; here it stays in the status bar.");
       return;
     }
     if (wanted && state === "absent") {
@@ -77,7 +78,11 @@ export class TitleBar {
 
   async patch(): Promise<void> {
     if (this.state() === "unsupported") {
-      void vscode.window.showWarningMessage("Patching the title bar works only in desktop VS Code with a local workspace.");
+      void vscode.window.showWarningMessage(
+        vscode.env.remoteName
+          ? "This window's extensions run remotely, so they can't patch this VS Code: run “CMake: Put the CMake Toolbar in the Title Bar” in a local window (File › New Window, with CMake Helper installed locally)."
+          : "Patching the title bar works only in desktop VS Code.",
+      );
       return;
     }
     const html = fs.readFileSync(this.files.html, "utf8").replace(LINE, "");
