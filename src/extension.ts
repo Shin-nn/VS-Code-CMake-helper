@@ -15,6 +15,7 @@ import { ICON, KINDS, canRun, debugConfigurationFor, debugWithConfiguration, run
 import { openProfileEditor } from "./profileEditor";
 import { removeProfile } from "./profiles";
 import { CMakeProject } from "./project";
+import { registerResetTarget } from "./resetTarget";
 import { StatusBar } from "./statusBar";
 import { TitleBar } from "./titleBar";
 import { CTestProvider } from "./tests";
@@ -277,6 +278,7 @@ export function activate(context: vscode.ExtensionContext): void {
   command("cmakeHelper.activeTarget", () => project?.activeTarget?.name);
   command("cmakeHelper.buildDirectory", () => project?.buildDir);
   command("cmakeHelper.buildType", () => project?.configuration);
+  registerResetTarget(context);
 
   context.subscriptions.push(
     output,

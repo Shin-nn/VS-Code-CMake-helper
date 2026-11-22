@@ -170,7 +170,7 @@ function renderForm() {
       input("'target remote' args", "remote", r.remote, { placeholder: "localhost:3333" }) +
       sec("Download") +
       select("Download executable", "download", r.download, [["always", "Always"], ["updated", "If updated"], ["never", "Never"]], "Flash the program when debugging starts.") +
-      input("Reset command", "resetCommand", r.resetCommand, { placeholder: "monitor reset halt", hint: "Before the download, and again after it." }) +
+      input("Reset command", "resetCommand", r.resetCommand, { placeholder: "monitor reset halt", hint: "Before the download, again after it, and for Reset Target in the debug toolbar (monitor reset without one)." }) +
       input("Download & Run starts it with", "runCommands", r.runCommands, { area: true, placeholder: "monitor reset run", hint: "gdb commands, one per line, after the download (▶ Run, without a debugger)." });
   } else if (local) {
     h += sec("Target") +
@@ -180,7 +180,7 @@ function renderForm() {
       input("'target remote' args", "remote", r.remote, { placeholder: "none: the program runs under the debugger here", hint: "What the debugger gets as <code>target remote</code>: for mdb-gdb the debug tool (<code>sim</code>, <code>pickit5</code>, <code>icd4</code>, <code>pickit4:1</code>, <code>pickit5,device=…</code>)." }) +
       sec("Download") +
       select("Download executable", "download", r.download, [["always", "Always"], ["updated", "If updated"], ["never", "Never"]], "Program the device when debugging starts (gdb <code>load</code>).") +
-      input("Reset command", "resetCommand", r.resetCommand, { placeholder: "monitor reset", hint: "Before the download, and again after it." }) +
+      input("Reset command", "resetCommand", r.resetCommand, { placeholder: "monitor reset", hint: "Before the download, again after it, and for Reset Target in the debug toolbar (monitor reset without one)." }) +
       input("Download & Run starts it with", "runCommands", r.runCommands, { area: true, placeholder: "monitor reset run", hint: "gdb commands, one per line, after the download (▶ Run, without a debugger)." });
   } else {
     h += sec("Connection") +

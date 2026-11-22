@@ -2,7 +2,7 @@
   "name": "vs-code-cmake-helper",
   "displayName": "VS Code CMake Helper",
   "description": "CMake the way CLion does it: profiles and presets, targets with their sources, one active target to build, run and debug, run configurations per target, CTest in the Test Explorer.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "cernik",
   "license": "UNLICENSED",
   "engines": {
@@ -218,6 +218,12 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "cmakeHelper.resetTarget",
+        "title": "Reset Target",
+        "category": "CMake",
+        "icon": "$(debug-rerun)"
+      },
+      {
         "command": "cmakeHelper.editRunConfiguration",
         "title": "Edit Run Configuration…",
         "category": "CMake",
@@ -268,6 +274,13 @@
       }
     ],
     "menus": {
+      "debug/toolbar": [
+        {
+          "command": "cmakeHelper.resetTarget",
+          "when": "cmakeHelper.canResetTarget",
+          "group": "navigation@1"
+        }
+      ],
       "explorer/context": [
         {
           "command": "cmakeHelper.loadProject",
@@ -471,6 +484,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "cmakeHelper.resetTarget",
+          "when": "cmakeHelper.canResetTarget"
+        },
         {
           "command": "cmakeHelper.loadProject",
           "when": "resourceFilename == CMakeLists.txt"

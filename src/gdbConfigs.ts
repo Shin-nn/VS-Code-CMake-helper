@@ -22,6 +22,7 @@ import { type Target, executableOf } from "./fileApi";
 import { buildFirst, programOf } from "./launcher";
 import { PRESET_FILES, createUserPresets, editPresetFile, presetDebugConfigs } from "./presets";
 import type { CMakeProject } from "./project";
+import { RESET_PROPERTY } from "./resetTarget";
 import { errorText, expand, onPath, parseEnv, pathKey, settings, splitArgs } from "./util";
 
 export type GdbKind = "embedded" | "remote" | "local";
@@ -289,9 +290,12 @@ export async function debugWithConfiguration(project: CMakeProject, c: GdbConfig
       if (c.serverReady?.trim()) config.serverStarted = c.serverReady.trim();
       config.filterStdout = true;
       config.filterStderr = true;
-      config.serverLaunchTimeout = 20000;
+      // A server that programs the device before it is ready (xc16-gdbserver: mdb, PICkit) takes over 20 s.
+      config.serverLaunchTimeout = 60000;
     }
     const reset = c.resetCommand?.trim();
+    // For Reset Target: the target reset in the running session.
+    if (remote) config[RESET_PROPERTY] = reset || "monitor reset";
     const mode = c.download ?? "always";
     const print = fingerprint(r.program);
     const download = !!remote && (mode === "always" || (mode === "updated" && project.workspaceState.get(downloadedKey(c)) !== print));
